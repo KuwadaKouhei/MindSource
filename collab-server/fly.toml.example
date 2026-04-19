@@ -1,0 +1,28 @@
+# Copy to fly.toml and adjust:
+#   fly launch --from ./collab-server --name <your-collab-server-name>
+# Remember to set CLIENT_ORIGIN to your production site and create a persistent
+# volume for the y-leveldb data dir.
+
+app = "mindsource-collab"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  CLIENT_ORIGIN = "https://your-mindsource.vercel.app"
+
+[[services]]
+  internal_port = 1234
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+[mounts]
+  source = "collab_data"
+  destination = "/data"

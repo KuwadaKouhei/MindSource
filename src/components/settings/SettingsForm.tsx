@@ -83,6 +83,19 @@ export function SettingsForm({
         />
       </Field>
 
+      <Field label="カラースキーム">
+        <Radio
+          value={s.color_scheme}
+          onChange={(v) => patch({ color_scheme: v })}
+          options={[
+            { v: "default", l: "デフォルト" },
+            { v: "cool", l: "クール" },
+            { v: "warm", l: "ウォーム" },
+            { v: "vivid", l: "ビビッド" },
+          ]}
+        />
+      </Field>
+
       <Field label="レイアウト">
         <Radio
           value={s.layout}

@@ -21,9 +21,10 @@ type Opts = {
   ) => void;
   /** Latest measured React Flow nodes, for size-aware layout. */
   getMeasuredNodes: () => Node<WordNodeData>[];
+  onError?: (err: Error, context: "cascade" | "expand") => void;
 };
 
-export function useAutoGen({ doc, settings, replaceAll, appendChildren, getMeasuredNodes }: Opts) {
+export function useAutoGen({ doc, settings, replaceAll, appendChildren, getMeasuredNodes, onError }: Opts) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,12 +49,14 @@ export function useAutoGen({ doc, settings, replaceAll, appendChildren, getMeasu
         });
         replaceAll({ nodes: laidOut, edges }, { rootWord: word, layout: settings.layout });
       } catch (e) {
-        setError((e as Error).message);
+        const err = e as Error;
+        setError(err.message);
+        onError?.(err, "cascade");
       } finally {
         setLoading(false);
       }
     },
-    [settings, replaceAll],
+    [settings, replaceAll, onError],
   );
 
   const expandNode = useCallback(
@@ -95,12 +98,14 @@ export function useAutoGen({ doc, settings, replaceAll, appendChildren, getMeasu
         );
         appendChildren({ nodes, edges });
       } catch (e) {
-        setError((e as Error).message);
+        const err = e as Error;
+        setError(err.message);
+        onError?.(err, "expand");
       } finally {
         setLoading(false);
       }
     },
-    [doc, settings, appendChildren, getMeasuredNodes],
+    [doc, settings, appendChildren, getMeasuredNodes, onError],
   );
 
   return { cascadeFromRoot, expandNode, loading, error };

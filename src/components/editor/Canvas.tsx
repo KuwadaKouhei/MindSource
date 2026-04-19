@@ -19,6 +19,12 @@ import { Toolbar } from "./Toolbar";
 import { NodeInspector } from "./NodeInspector";
 import { PresenceBar } from "./PresenceBar";
 import { TreePanel } from "./TreePanel";
+import { RemoteCursors } from "./RemoteCursors";
+import { useToast } from "@/components/ui/Toaster";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { CollaboratorsModal } from "./CollaboratorsModal";
+import { ColorSchemeContext } from "@/components/flow/ColorSchemeContext";
+import { colorForGen } from "@/lib/flow/colors";
 import {
   runLayout,
   findFreePosition,
@@ -37,15 +43,6 @@ import {
 
 const nodeTypes = { word: WordNode };
 
-const GEN_COLORS = [
-  "#7c9cff",
-  "#a28bff",
-  "#ff8bd0",
-  "#ffb47a",
-  "#8bffb8",
-  "#ffd76b",
-];
-
 export type CanvasProps = {
   roomId: string;
   enableCollab: boolean;
@@ -57,6 +54,8 @@ export type CanvasProps = {
   saveState?: "idle" | "saving" | "saved" | "error";
   onSave?: () => void;
   autoSeedWord?: string | null;
+  /** Supabase map id when saved; otherwise undefined (anonymous). */
+  savedMapId?: string | null;
 };
 
 export function Canvas(props: CanvasProps) {
@@ -78,8 +77,10 @@ function CanvasInner({
   saveState,
   onSave,
   autoSeedWord,
+  savedMapId,
 }: CanvasProps) {
   const rf = useReactFlow();
+  const toast = useToast();
   const mm = useMindmap({ roomId, enableCollab, initialSnapshot });
   const nodesInitialized = useNodesInitialized();
   // Keep a live ref to mm.nodes so callbacks can read the latest measured sizes
@@ -96,11 +97,23 @@ function CanvasInner({
     replaceAll: mm.replaceAll,
     appendChildren: mm.appendChildren,
     getMeasuredNodes,
+    onError: (err, ctx) => {
+      const offline = err.message.toLowerCase().includes("failed to fetch") ||
+        err.message.toLowerCase().includes("networkerror");
+      toast.show({
+        kind: "error",
+        title: ctx === "cascade" ? "自動生成に失敗" : "連想取得に失敗",
+        message: offline
+          ? "word-api に接続できません。サーバーが起動しているか確認してください。"
+          : err.message,
+      });
+    },
   });
 
   const [title, setTitle] = useState(initialTitle);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [treeOpen, setTreeOpen] = useState(false);
+  const [collabOpen, setCollabOpen] = useState(false);
 
   const focusNode = useCallback(
     (id: string) => {
@@ -198,6 +211,32 @@ function CanvasInner({
     void handleReLayout();
   }, [nodesInitialized, mm.nodes.length, handleReLayout]);
 
+  // Populate awareness with logged-in user's display name when available.
+  useEffect(() => {
+    const provider = mm.provider.current;
+    if (!provider) return;
+    const applyName = (name: string) => {
+      const existing = provider.awareness.getLocalState() as { user?: { name: string; color: string; id: number } } | null;
+      const current = existing?.user;
+      const color = current?.color ?? `hsl(${Math.floor(Math.random() * 360)} 70% 60%)`;
+      provider.awareness.setLocalStateField("user", {
+        id: provider.awareness.clientID,
+        name,
+        color,
+      });
+    };
+    (async () => {
+      try {
+        const res = await fetch("/api/profile", { credentials: "include" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { display_name?: string | null };
+        if (data.display_name) applyName(data.display_name);
+      } catch {
+        /* anonymous session */
+      }
+    })();
+  }, [mm.provider, mm.providerReady]);
+
   // WordNode → rename event → Y.Doc
   useEffect(() => {
     const onRename = (ev: Event) => {
@@ -207,6 +246,28 @@ function CanvasInner({
     };
     window.addEventListener(createMindmapDocHandle.RENAME_EVENT, onRename);
     return () => window.removeEventListener(createMindmapDocHandle.RENAME_EVENT, onRename);
+  }, [mm]);
+
+  // Keyboard shortcuts: Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z or Ctrl+Y = redo
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      // Skip when typing in an input/textarea
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
+        return;
+      }
+      if (e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        mm.undo();
+      } else if ((e.key === "z" && e.shiftKey) || e.key === "y") {
+        e.preventDefault();
+        mm.redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [mm]);
 
   // Auto-run cascade once if a seed word was supplied and the map is empty
@@ -222,13 +283,18 @@ function CanvasInner({
     wrappedCascade(autoSeedWord);
   }, [autoSeedWord, wrappedCascade, mm.doc]);
 
-  const handleDelete = useCallback(
-    (id: string) => {
-      mm.onNodesChange([{ type: "remove", id }]);
-      setSelectedId(null);
-    },
-    [mm],
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const pendingDeleteNode = useMemo(
+    () => mm.nodes.find((n) => n.id === pendingDelete) ?? null,
+    [mm.nodes, pendingDelete],
   );
+  const handleDelete = useCallback((id: string) => setPendingDelete(id), []);
+  const confirmDelete = useCallback(() => {
+    if (!pendingDelete) return;
+    mm.onNodesChange([{ type: "remove", id: pendingDelete }]);
+    if (selectedId === pendingDelete) setSelectedId(null);
+    setPendingDelete(null);
+  }, [pendingDelete, mm, selectedId]);
 
   const captureViewport = useCallback(async (kind: "png" | "svg") => {
     const vp = document.querySelector<HTMLElement>(".react-flow__viewport");
@@ -248,11 +314,26 @@ function CanvasInner({
 
   const handleShare = useCallback(() => {
     const url = new URL(window.location.href);
-    navigator.clipboard?.writeText(url.toString()).catch(() => {});
-    alert("共有URLをクリップボードにコピーしました\n" + url.toString());
-  }, []);
+    navigator.clipboard
+      ?.writeText(url.toString())
+      .then(() =>
+        toast.show({
+          kind: "success",
+          title: "共有URLをコピーしました",
+          message: "他の人に送るとリアルタイム共同編集できます。",
+        }),
+      )
+      .catch(() =>
+        toast.show({
+          kind: "warning",
+          title: "クリップボードに書き込めませんでした",
+          message: url.toString(),
+        }),
+      );
+  }, [toast]);
 
   return (
+    <ColorSchemeContext.Provider value={settings.color_scheme}>
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <Toolbar
         title={title}
@@ -270,6 +351,9 @@ function CanvasInner({
         loading={loading}
         onToggleTree={() => setTreeOpen((v) => !v)}
         treeOpen={treeOpen}
+        onUndo={mm.undo}
+        onRedo={mm.redo}
+        onCollaborators={savedMapId ? () => setCollabOpen(true) : undefined}
       />
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         {treeOpen && (
@@ -295,6 +379,7 @@ function CanvasInner({
             onPaneClick={() => setSelectedId(null)}
             fitView
             proOptions={{ hideAttribution: true }}
+            deleteKeyCode={null}
           >
             <Background gap={24} />
             <MiniMap
@@ -308,13 +393,14 @@ function CanvasInner({
               maskColor="rgba(11, 13, 18, 0.6)"
               nodeColor={(n) => {
                 const gen = (n.data as { generation?: number } | undefined)?.generation ?? 0;
-                return GEN_COLORS[gen % GEN_COLORS.length];
+                return colorForGen(settings.color_scheme, gen);
               }}
               nodeStrokeColor="rgba(255,255,255,0.35)"
               nodeStrokeWidth={2}
               nodeBorderRadius={6}
             />
             <Controls />
+            <RemoteCursors provider={mm.provider.current} />
           </ReactFlow>
           <div style={{ position: "absolute", top: 8, right: 8 }}>
             <PresenceBar provider={mm.provider.current} />
@@ -329,6 +415,27 @@ function CanvasInner({
           expanding={loading}
         />
       </div>
+      {savedMapId && (
+        <CollaboratorsModal
+          open={collabOpen}
+          onClose={() => setCollabOpen(false)}
+          mapId={savedMapId}
+        />
+      )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="ノードを削除しますか？"
+        message={
+          pendingDeleteNode
+            ? `「${(pendingDeleteNode.data as { word?: string })?.word ?? pendingDelete}」と、このノードに繋がっているエッジを削除します。`
+            : ""
+        }
+        confirmLabel="削除"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
+    </ColorSchemeContext.Provider>
   );
 }

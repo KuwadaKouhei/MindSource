@@ -19,6 +19,9 @@ type Props = {
   loading: boolean;
   onToggleTree: () => void;
   treeOpen: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+  onCollaborators?: () => void;
 };
 
 export function Toolbar(p: Props) {
@@ -81,6 +84,8 @@ export function Toolbar(p: Props) {
         展開 (expand)
       </button>
       <button onClick={p.onReLayout} style={btn()}>再レイアウト</button>
+      <button onClick={p.onUndo} style={btn()} title="元に戻す (Ctrl+Z)">↶</button>
+      <button onClick={p.onRedo} style={btn()} title="やり直し (Ctrl+Shift+Z)">↷</button>
       <div style={{ flex: 1 }} />
       {p.onSave && (
         <button onClick={p.onSave} style={btn()}>
@@ -90,6 +95,9 @@ export function Toolbar(p: Props) {
       <button onClick={p.onExportPng} style={btn()}>PNG</button>
       <button onClick={p.onExportSvg} style={btn()}>SVG</button>
       <button onClick={p.onShare} style={btn()}>共有</button>
+      {p.onCollaborators && (
+        <button onClick={p.onCollaborators} style={btn()} title="コラボレーター管理">メンバー</button>
+      )}
     </div>
   );
 }

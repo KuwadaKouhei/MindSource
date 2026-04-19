@@ -4,23 +4,13 @@ import { Handle, Position, useReactFlow, type NodeProps } from "@xyflow/react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { WordNodeData } from "@/lib/yjs/binding";
 import { createMindmapDocHandle } from "@/lib/yjs/nodeRenameBridge";
-
-const GEN_COLORS = [
-  "#7c9cff", // G0
-  "#a28bff",
-  "#ff8bd0",
-  "#ffb47a",
-  "#8bffb8",
-  "#ffd76b",
-];
-
-function genColor(g: number) {
-  return GEN_COLORS[g % GEN_COLORS.length];
-}
+import { colorForGen } from "@/lib/flow/colors";
+import { useColorScheme } from "./ColorSchemeContext";
 
 function WordNodeInner({ id, data, selected }: NodeProps) {
   const d = data as WordNodeData;
-  const color = genColor(d.generation);
+  const scheme = useColorScheme();
+  const color = colorForGen(scheme, d.generation);
   const rf = useReactFlow();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(d.word);

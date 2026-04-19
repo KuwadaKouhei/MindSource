@@ -3,15 +3,8 @@
 import { useMemo, useState } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import type { WordNodeData } from "@/lib/yjs/binding";
-
-const GEN_COLORS = [
-  "#7c9cff",
-  "#a28bff",
-  "#ff8bd0",
-  "#ffb47a",
-  "#8bffb8",
-  "#ffd76b",
-];
+import { colorForGen } from "@/lib/flow/colors";
+import { useColorScheme } from "@/components/flow/ColorSchemeContext";
 
 type TreeNode = {
   id: string;
@@ -80,6 +73,7 @@ export function TreePanel({ nodes, edges, selectedId, onSelect, onClose }: Props
   const forest = useMemo(() => buildForest(nodes, edges), [nodes, edges]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
+  const scheme = useColorScheme();
 
   const toggle = (id: string) => {
     setCollapsed((prev) => {
@@ -151,6 +145,7 @@ export function TreePanel({ nodes, edges, selectedId, onSelect, onClose }: Props
               selectedId={selectedId}
               matches={matches}
               filterActive={!!filter}
+              scheme={scheme}
             />
           ))
         )}
@@ -168,6 +163,7 @@ type TreeItemProps = {
   selectedId: string | null;
   matches: (word: string) => boolean;
   filterActive: boolean;
+  scheme: string;
 };
 
 function TreeItem({
@@ -179,6 +175,7 @@ function TreeItem({
   selectedId,
   matches,
   filterActive,
+  scheme,
 }: TreeItemProps) {
   // Show a branch if it or any descendant matches the filter.
   const selfMatches = matches(node.word);
@@ -187,7 +184,7 @@ function TreeItem({
 
   const hasChildren = node.children.length > 0;
   const isCollapsed = collapsed.has(node.id);
-  const color = GEN_COLORS[node.generation % GEN_COLORS.length];
+  const color = colorForGen(scheme, node.generation);
   const isSelected = selectedId === node.id;
 
   return (
@@ -263,6 +260,7 @@ function TreeItem({
               selectedId={selectedId}
               matches={matches}
               filterActive={filterActive}
+              scheme={scheme}
             />
           ))}
         </div>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Edge, Node, NodeChange, EdgeChange, Connection } from "@xyflow/react";
 import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import type { WebsocketProvider } from "y-websocket";
+import * as Y from "yjs";
 import { createMindmapDoc, type MindmapDoc } from "@/lib/yjs/doc";
 import {
   addEdge as addEdgeY,
@@ -35,6 +36,17 @@ export function useMindmap({ roomId, enableCollab, initialSnapshot }: UseMindmap
   const [edges, setEdges] = useState<Edge[]>([]);
   const [providerReady, setProviderReady] = useState(false);
   const providerRef = useRef<WebsocketProvider | null>(null);
+
+  // UndoManager tracks local edits on the node/edge/meta maps.
+  const undoManagerRef = useRef<Y.UndoManager | null>(null);
+  if (!undoManagerRef.current) {
+    undoManagerRef.current = new Y.UndoManager(
+      [doc.yNodes, doc.yEdges, doc.yMeta],
+      { captureTimeout: 300 },
+    );
+  }
+  const undo = useCallback(() => undoManagerRef.current?.undo(), []);
+  const redo = useCallback(() => undoManagerRef.current?.redo(), []);
 
   // Initial snapshot load (runs before any Y.Doc sync)
   useEffect(() => {
@@ -148,8 +160,10 @@ export function useMindmap({ roomId, enableCollab, initialSnapshot }: UseMindmap
       doc,
       provider: providerRef,
       providerReady,
+      undo,
+      redo,
     }),
-    [nodes, edges, onNodesChange, onEdgesChange, onConnect, renameNode, replaceAll, appendChildren, doc, providerReady],
+    [nodes, edges, onNodesChange, onEdgesChange, onConnect, renameNode, replaceAll, appendChildren, doc, providerReady, undo, redo],
   );
 
   return api;

@@ -6,6 +6,7 @@ import type { Snapshot } from "@/lib/storage/localDraft";
 import { loadDraft, saveDraft } from "@/lib/storage/localDraft";
 import type { Settings } from "@/lib/settings/schema";
 import { useSettings } from "@/hooks/useSettings";
+import { useToast } from "@/components/ui/Toaster";
 
 type Props = {
   mode: "saved" | "local";
@@ -31,6 +32,8 @@ export function EditorClient({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const settings = useSettings(initialSettings);
   const hydratedFromLocalRef = useRef(false);
+  const toast = useToast();
+  const currentSnapshotRef = useRef<Snapshot | null>(initialSnapshot);
 
   // Anonymous map: hydrate snapshot from IndexedDB if present
   useEffect(() => {
@@ -46,6 +49,7 @@ export function EditorClient({
 
   const onSnapshotChange = useCallback(
     async (next: Snapshot) => {
+      currentSnapshotRef.current = next;
       if (mode === "local") {
         await saveDraft({
           localId: mapId,
@@ -58,20 +62,60 @@ export function EditorClient({
       } else {
         setSaveState("saving");
         try {
-          await fetch(`/api/maps/${mapId}/snapshot`, {
+          const res = await fetch(`/api/maps/${mapId}/snapshot`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(next),
           });
+          if (!res.ok) throw new Error(`http ${res.status}`);
           setSaveState("saved");
           setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 1500);
-        } catch {
+        } catch (e) {
           setSaveState("error");
+          toast.show({
+            kind: "error",
+            title: "保存に失敗しました",
+            message: (e as Error).message,
+          });
         }
       }
     },
-    [mode, mapId, currentTitle],
+    [mode, mapId, currentTitle, toast],
   );
+
+  // Flush any pending snapshot on unload so a fast close doesn't lose edits.
+  useEffect(() => {
+    const handler = () => {
+      const snap = currentSnapshotRef.current;
+      if (!snap) return;
+      if (mode === "local") {
+        // IDB writes are async; kick it off synchronously. Fire-and-forget is OK
+        // because the browser keeps the tab alive briefly for pending IDB tx.
+        void saveDraft({
+          localId: mapId,
+          title: currentTitle,
+          rootWord: null,
+          snapshot: snap,
+          settingsOverride: null,
+          updatedAt: Date.now(),
+        });
+      } else {
+        // sendBeacon is the only reliable network call during unload.
+        try {
+          const blob = new Blob([JSON.stringify(snap)], { type: "application/json" });
+          navigator.sendBeacon?.(`/api/maps/${mapId}/snapshot`, blob);
+        } catch {
+          // best-effort
+        }
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    window.addEventListener("pagehide", handler);
+    return () => {
+      window.removeEventListener("beforeunload", handler);
+      window.removeEventListener("pagehide", handler);
+    };
+  }, [mode, mapId, currentTitle]);
 
   const onTitleChange = useCallback(
     async (t: string) => {
@@ -103,6 +147,7 @@ export function EditorClient({
       onTitleChange={onTitleChange}
       saveState={mode === "saved" ? saveState : "idle"}
       autoSeedWord={seedWord ?? null}
+      savedMapId={mode === "saved" ? mapId : null}
     />
   );
 }
