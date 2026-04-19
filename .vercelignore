@@ -1,0 +1,7 @@
+# Exclude local-only artifacts from the Vercel build upload.
+# NOTE: patterns must anchor with `/` to avoid matching src/lib/supabase etc.
+/collab-server
+/supabase
+/docs
+/DEPLOY.md
+*.log
