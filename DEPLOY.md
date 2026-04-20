@@ -125,9 +125,37 @@ docker run -d --name mindsource-collab \
 
 リバースプロキシ（Caddy / nginx / Cloudflare Tunnel）で TLS 化し、`wss://` ドメインを `NEXT_PUBLIC_COLLAB_WS_URL` に指定します。
 
-### Render / Railway
+### Render（CLI 不要、Blueprint で一発）
 
-- Build command: `npm ci && npm run --prefix collab-server build:prep`（`build:prep` は不要なら省略）
+このリポジトリには `render.yaml` (Blueprint) が含まれており、ダッシュボードだけで
+デプロイできます。
+
+1. [render.com](https://render.com/) でアカウント作成・GitHub 連携
+2. **New → Blueprint** を選び、`KuwadaKouhei/MindSource` リポジトリを接続
+3. Render が `render.yaml` を検出して内容を表示するので **Create New Resources**
+4. 作成後の Service ページ → **Environment** → `CLIENT_ORIGIN` を
+   `https://mindsource.vercel.app` に設定 → Save
+5. 自動ビルド & デプロイが走り、URL が発行される（例: `https://mindsource-collab.onrender.com`）
+6. **Vercel** 側で:
+
+   ```powershell
+   cd d:\training2\mindsource
+   npx vercel env rm NEXT_PUBLIC_COLLAB_WS_URL production
+   echo "wss://mindsource-collab.onrender.com" | npx vercel env add NEXT_PUBLIC_COLLAB_WS_URL production
+   npx vercel deploy --prod
+   ```
+
+備考:
+
+- `render.yaml` の `plan: starter` は常時稼働の有料プラン（約 $7/月）。Free プランは
+  アイドル時にスリープするため WebSocket の維持に向きません。節約したいなら
+  `plan: free` にして `disk` を外し、接続が切れやすいことを許容する運用も可能。
+- `region` は `singapore`（東京プランは有料上位のみ）。
+- 永続ディスクは 1 GB。溢れたらダッシュボードで拡張できます。
+
+### Railway
+
+- Build command: `npm ci --prefix collab-server`
 - Start command: `npx tsx collab-server/src/index.ts`
 - Persistent Disk を `/data` にマウント
 - `CLIENT_ORIGIN` 環境変数を設定

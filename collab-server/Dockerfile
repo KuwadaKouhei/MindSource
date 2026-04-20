@@ -6,7 +6,7 @@ RUN npm ci --omit=dev
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=1234
+# PORT is supplied by the platform (Render, Fly, etc.) and defaults to 1234 locally.
 ENV HOST=0.0.0.0
 ENV DATA_DIR=/data
 VOLUME /data

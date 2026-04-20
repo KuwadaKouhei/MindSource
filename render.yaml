@@ -1,0 +1,32 @@
+# Render Blueprint: deploys the collab-server (y-websocket) as a single
+# Web Service with a persistent disk for y-leveldb state.
+#
+# How to use:
+#   1. Push this file to GitHub (already on main)
+#   2. In Render dashboard: New → Blueprint → pick this repo
+#   3. Confirm the service name and the region, then create
+#   4. Set CLIENT_ORIGIN (env var) to your Vercel domain
+#   5. After the first deploy, Render gives you a URL like
+#      https://mindsource-collab.onrender.com — use wss:// of that host in
+#      NEXT_PUBLIC_COLLAB_WS_URL on Vercel.
+
+services:
+  - type: web
+    name: mindsource-collab
+    runtime: docker
+    dockerfilePath: ./collab-server/Dockerfile
+    dockerContext: ./collab-server
+    region: singapore
+    plan: starter                 # cheapest always-on tier
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: CLIENT_ORIGIN
+        sync: false               # must be set in dashboard after deploy
+    disk:
+      name: collab-data
+      mountPath: /data
+      sizeGB: 1
+    healthCheckPath: /
