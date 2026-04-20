@@ -125,12 +125,12 @@ docker run -d --name mindsource-collab \
 
 リバースプロキシ（Caddy / nginx / Cloudflare Tunnel）で TLS 化し、`wss://` ドメインを `NEXT_PUBLIC_COLLAB_WS_URL` に指定します。
 
-### Render（CLI 不要、Blueprint で一発）
+### Render（無料プラン、カード不要、Blueprint で一発）
 
 このリポジトリには `render.yaml` (Blueprint) が含まれており、ダッシュボードだけで
-デプロイできます。
+デプロイできます。**既定は Free プラン** なのでカード情報は不要です。
 
-1. [render.com](https://render.com/) でアカウント作成・GitHub 連携
+1. [render.com](https://render.com/) でアカウント作成・GitHub 連携（カード要求なし）
 2. **New → Blueprint** を選び、`KuwadaKouhei/MindSource` リポジトリを接続
 3. Render が `render.yaml` を検出して内容を表示するので **Create New Resources**
 4. 作成後の Service ページ → **Environment** → `CLIENT_ORIGIN` を
@@ -145,13 +145,16 @@ docker run -d --name mindsource-collab \
    npx vercel deploy --prod
    ```
 
-備考:
+Free プランのトレードオフ:
 
-- `render.yaml` の `plan: starter` は常時稼働の有料プラン（約 $7/月）。Free プランは
-  アイドル時にスリープするため WebSocket の維持に向きません。節約したいなら
-  `plan: free` にして `disk` を外し、接続が切れやすいことを許容する運用も可能。
-- `region` は `singapore`（東京プランは有料上位のみ）。
-- 永続ディスクは 1 GB。溢れたらダッシュボードで拡張できます。
+- **永続ディスクなし**: `y-leveldb` のデータは再起動で消えます。MindSource はクライアントが
+  2秒デバウンスで Supabase にスナップショット JSON を PUT しているので、マップ本体は
+  保全されます。再起動中に飛んだ編集履歴だけ（undo の深さ）が短くなる程度の影響です。
+- **15分アイドルでスリープ**: 久しぶりのアクセスは初回 30 秒ほど待つ必要あり。
+  編集中は常に ws で通信するのでスリープには入りません。
+
+常時稼働・永続化が必要になったら `render.yaml` の `plan: free` を `plan: starter`
+($7/月) に変更し、コメントアウトしてある `disk:` ブロックを有効化して push してください。
 
 ### Railway
 

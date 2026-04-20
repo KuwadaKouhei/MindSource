@@ -8,8 +8,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 # PORT is supplied by the platform (Render, Fly, etc.) and defaults to 1234 locally.
 ENV HOST=0.0.0.0
+# DATA_DIR defaults to /data; platforms that don't provide a persistent volume
+# should override this (e.g. /tmp/collab-data on Render Free).
 ENV DATA_DIR=/data
-VOLUME /data
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json ./

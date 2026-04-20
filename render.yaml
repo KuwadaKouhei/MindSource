@@ -1,14 +1,17 @@
-# Render Blueprint: deploys the collab-server (y-websocket) as a single
-# Web Service with a persistent disk for y-leveldb state.
+# Render Blueprint: deploys the collab-server (y-websocket) on the Free plan.
 #
-# How to use:
-#   1. Push this file to GitHub (already on main)
-#   2. In Render dashboard: New → Blueprint → pick this repo
-#   3. Confirm the service name and the region, then create
-#   4. Set CLIENT_ORIGIN (env var) to your Vercel domain
-#   5. After the first deploy, Render gives you a URL like
-#      https://mindsource-collab.onrender.com — use wss:// of that host in
-#      NEXT_PUBLIC_COLLAB_WS_URL on Vercel.
+# Tradeoff of the Free plan:
+#   - No persistent disk, so y-leveldb state is lost on every restart
+#     (a restart happens daily and after 15 min of idle). This is OK for
+#     MindSource because the *client* PUTs a JSON snapshot to Supabase every
+#     2s and on unload, so the map itself is not lost — only in-flight CRDT
+#     history between restarts.
+#   - The service sleeps after 15 min of inactivity. First hit after sleep
+#     may take ~30 s to wake up. While editing, traffic keeps it awake.
+#
+# Upgrade path:
+#   Change `plan: free` to `plan: starter` ($7/mo) AND uncomment the `disk:`
+#   block to enable persistence. Both require a card on file with Render.
 
 services:
   - type: web
@@ -17,16 +20,18 @@ services:
     dockerfilePath: ./collab-server/Dockerfile
     dockerContext: ./collab-server
     region: singapore
-    plan: starter                 # cheapest always-on tier
+    plan: free
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATA_DIR
-        value: /data
+        # Free plan has no persistent disk; use ephemeral /tmp so y-leveldb
+        # still initializes. State is lost on every restart.
+        value: /tmp/collab-data
       - key: CLIENT_ORIGIN
         sync: false               # must be set in dashboard after deploy
-    disk:
-      name: collab-data
-      mountPath: /data
-      sizeGB: 1
     healthCheckPath: /
+    # disk:
+    #   name: collab-data
+    #   mountPath: /data
+    #   sizeGB: 1
