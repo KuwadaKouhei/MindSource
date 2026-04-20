@@ -37,6 +37,26 @@ async function parseResponse<T>(res: Response): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+async function fetchWordApi(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
+  } catch (e) {
+    const err = e as Error;
+    if (err.name === "AbortError") {
+      throw new WordApiError(504, "word-api timeout (15s)", { url });
+    }
+    throw new WordApiError(
+      502,
+      `word-api unreachable: ${err.message}`,
+      { url, cause: err.message },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchRelated(params: RelatedParams): Promise<RelatedResponse> {
   const { base, key } = getConfig();
   const url = new URL("/v1/related", base);
@@ -47,9 +67,8 @@ export async function fetchRelated(params: RelatedParams): Promise<RelatedRespon
   if (params.exclude?.length) url.searchParams.set("exclude", params.exclude.join(","));
   if (params.use_stopwords === false) url.searchParams.set("use_stopwords", "false");
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchWordApi(url.toString(), {
     headers: { "X-API-Key": key },
-    cache: "no-store",
   });
   return parseResponse<RelatedResponse>(res);
 }
@@ -67,14 +86,13 @@ export async function fetchCascade(params: CascadeParams): Promise<CascadeRespon
   if (params.use_stopwords === false) body.use_stopwords = false;
   if (params.max_nodes != null) body.max_nodes = params.max_nodes;
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchWordApi(url.toString(), {
     method: "POST",
     headers: {
       "X-API-Key": key,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
-    cache: "no-store",
   });
   return parseResponse<CascadeResponse>(res);
 }

@@ -98,8 +98,14 @@ function CanvasInner({
     appendChildren: mm.appendChildren,
     getMeasuredNodes,
     onError: (err, ctx) => {
-      const offline = err.message.toLowerCase().includes("failed to fetch") ||
-        err.message.toLowerCase().includes("networkerror");
+      const msg = err.message.toLowerCase();
+      const offline =
+        msg.includes("failed to fetch") ||
+        msg.includes("networkerror") ||
+        msg.includes("unreachable") ||
+        msg.includes("timeout") ||
+        msg.includes("word-api 502") ||
+        msg.includes("word-api 504");
       toast.show({
         kind: "error",
         title: ctx === "cascade" ? "自動生成に失敗" : "連想取得に失敗",
@@ -226,13 +232,23 @@ function CanvasInner({
       });
     };
     (async () => {
+      // Check Supabase session client-side first so anonymous users never
+      // hit /api/profile (which would legitimately return 401 and spam logs).
+      try {
+        const { createSupabaseBrowserClient } = await import("@/lib/supabase/client");
+        const supabase = createSupabaseBrowserClient();
+        const { data } = await supabase.auth.getUser();
+        if (!data.user) return;
+      } catch {
+        return;
+      }
       try {
         const res = await fetch("/api/profile", { credentials: "include" });
         if (!res.ok) return;
         const data = (await res.json()) as { display_name?: string | null };
         if (data.display_name) applyName(data.display_name);
       } catch {
-        /* anonymous session */
+        /* network error; silent */
       }
     })();
   }, [mm.provider, mm.providerReady]);
