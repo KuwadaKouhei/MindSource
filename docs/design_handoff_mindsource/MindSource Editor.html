@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>MindSource — Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #05080f;
+    --bg2: #0a1020;
+    --bg3: #0e1628;
+    --bg4: #121d33;
+    --line: #1b2a44;
+    --line2: #2a4066;
+    --text: #dfe8f5;
+    --muted: #6b7a93;
+    --muted2: #8fa0bd;
+    --cyan: #4fd1ff;
+    --cyan-dim: #2a7a9a;
+    --cyan-deep: #15405a;
+    --amber: #ffb84d;
+    --pink: #ff6b9d;
+    --green: #4ade80;
+    --glow: 0 0 12px rgba(79,209,255,0.55);
+    --glow-sm: 0 0 6px rgba(79,209,255,0.4);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: "Noto Sans JP", system-ui, sans-serif; height: 100vh; overflow: hidden; }
+  body { font-size: 14px; line-height: 1.55; }
+  .mono { font-family: "JetBrains Mono", "Roboto Mono", monospace; letter-spacing: 0.4px; }
+
+  /* ───── app shell ───── */
+  .app { display: grid; grid-template-rows: 52px 1fr 28px; height: 100vh; position: relative; }
+
+  /* ───── toolbar ───── */
+  .toolbar {
+    display: flex; align-items: stretch;
+    background: rgba(10,16,32,0.92); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+    padding: 0 14px; gap: 10px;
+    position: relative; z-index: 30;
+  }
+  .toolbar::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(79,209,255,0.4) 50%, transparent);
+  }
+
+  .tb-group { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+  .tb-group + .tb-group { border-left: 1px solid var(--line); padding-left: 12px; margin-left: 2px; }
+  .tb-spacer { flex: 1; }
+
+  .tb-logo { display: flex; align-items: center; gap: 10px; padding-right: 6px; }
+  .tb-logo .mark { width: 20px; height: 20px; position: relative; }
+  .tb-logo svg { position: absolute; inset: 0; }
+  .tb-logo .outer { animation: rotate 12s linear infinite; transform-origin: center; }
+  .tb-logo .name { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 12px; letter-spacing: 2px; }
+  .tb-logo .name .cursor { color: var(--cyan); animation: blink 1s step-end infinite; }
+  @keyframes rotate { to { transform: rotate(360deg) } }
+  @keyframes blink { 0%, 50% { opacity: 1 } 51%, 100% { opacity: 0 } }
+
+  .tb-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: transparent; border: 1px solid var(--line2); color: var(--text);
+    padding: 6px 10px; font-size: 12px; font-family: "JetBrains Mono", monospace;
+    letter-spacing: 0.5px; cursor: pointer; transition: all 0.15s;
+    clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+    height: 30px;
+  }
+  .tb-btn:hover { border-color: var(--cyan-dim); background: rgba(79,209,255,0.06); color: var(--cyan); }
+  .tb-btn.active {
+    border-color: var(--cyan); background: linear-gradient(180deg, rgba(79,209,255,0.18), rgba(79,209,255,0.08));
+    color: var(--cyan); box-shadow: 0 0 12px rgba(79,209,255,0.35), inset 0 0 10px rgba(79,209,255,0.1);
+  }
+  .tb-btn.primary {
+    border-color: var(--cyan); background: linear-gradient(180deg, var(--cyan) 0%, #2ea9d6 100%);
+    color: #02121c; font-weight: 700; box-shadow: 0 0 14px rgba(79,209,255,0.5);
+  }
+  .tb-btn.primary:hover { filter: brightness(1.15); color: #02121c; }
+  .tb-btn.icon-only { padding: 6px 8px; }
+  .tb-btn svg { display: block; }
+
+  .tb-title {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg3); border: 1px solid var(--line2);
+    padding: 0 12px; height: 30px; min-width: 160px;
+    font-size: 13px; color: var(--text);
+    clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  }
+  .tb-title .dot { width: 6px; height: 6px; background: var(--amber); border-radius: 50%; box-shadow: 0 0 4px var(--amber); flex: 0 0 auto; }
+  .tb-title input {
+    background: transparent; border: none; outline: none; color: var(--text);
+    font-family: inherit; font-size: 13px; width: 100%; padding: 0;
+  }
+
+  .tb-seed {
+    display: flex; align-items: stretch;
+    border: 1px solid var(--cyan-dim); background: var(--bg3);
+    height: 30px;
+    clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+    box-shadow: inset 0 0 8px rgba(79,209,255,0.06);
+  }
+  .tb-seed:focus-within { border-color: var(--cyan); box-shadow: 0 0 10px rgba(79,209,255,0.3), inset 0 0 8px rgba(79,209,255,0.1); }
+  .tb-seed .prefix { padding: 0 4px 0 10px; color: var(--cyan); font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 13px; display: flex; align-items: center; }
+  .tb-seed input {
+    background: transparent; border: none; outline: none; color: var(--text);
+    font-family: inherit; font-size: 13px; padding: 0 10px 0 4px; width: 180px;
+  }
+  .tb-seed input::placeholder { color: var(--muted); }
+
+  /* ───── main area ───── */
+  .main {
+    position: relative; overflow: hidden;
+    display: grid; grid-template-columns: 260px 1fr 320px;
+    transition: grid-template-columns 0.25s ease;
+  }
+  .main.no-tree { grid-template-columns: 0 1fr 320px; }
+  .main.no-tree .tree-panel { border-right: none; }
+  .main.no-tree .tree-panel > * { opacity: 0; pointer-events: none; }
+
+  /* ───── tree panel (outline) ───── */
+  .tree-panel {
+    background: rgba(10,16,32,0.85); backdrop-filter: blur(12px);
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+  .tree-panel .ph {
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 6px;
+    transition: opacity 0.2s;
+  }
+  .tree-panel .ph-title { font-size: 14px; font-weight: 700; letter-spacing: -0.2px; display: flex; align-items: center; gap: 8px; }
+  .tree-panel .ph-title svg { color: var(--cyan); filter: drop-shadow(0 0 3px var(--cyan)); }
+  .tree-panel .ph-sub { font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; }
+  .tree-panel .search {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg3); border: 1px solid var(--line2);
+    padding: 0 8px; height: 26px;
+    clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  }
+  .tree-panel .search svg { color: var(--muted); flex: 0 0 auto; }
+  .tree-panel .search input {
+    background: transparent; border: none; outline: none; color: var(--text);
+    font-family: "JetBrains Mono", monospace; font-size: 11px; width: 100%;
+  }
+  .tree-panel .pb {
+    flex: 1; overflow-y: auto; padding: 8px 6px 12px;
+    transition: opacity 0.2s;
+  }
+  .tree-panel .pb::-webkit-scrollbar { width: 6px; }
+  .tree-panel .pb::-webkit-scrollbar-thumb { background: var(--line2); }
+
+  .tree-item {
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px 6px; font-size: 12.5px;
+    cursor: pointer; transition: background 0.12s, color 0.12s;
+    position: relative; user-select: none;
+  }
+  .tree-item:hover { background: rgba(79,209,255,0.06); }
+  .tree-item.selected { background: linear-gradient(90deg, rgba(79,209,255,0.18), rgba(79,209,255,0.03)); color: var(--cyan); box-shadow: inset 2px 0 0 var(--cyan); }
+  .tree-item.selected .ti-dot { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+  .tree-item.selected .ti-sim { color: var(--cyan); }
+  .tree-item .ti-chev {
+    width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); transition: transform 0.15s, color 0.12s; flex: 0 0 auto;
+  }
+  .tree-item:hover .ti-chev { color: var(--text); }
+  .tree-item.collapsed .ti-chev { transform: rotate(-90deg); }
+  .tree-item.leaf .ti-chev { visibility: hidden; }
+  .tree-item .ti-dot {
+    width: 6px; height: 6px; background: var(--cyan-dim); border-radius: 50%; flex: 0 0 auto;
+    box-shadow: 0 0 3px rgba(79,209,255,0.4);
+  }
+  .tree-item.root > .ti-dot { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .tree-item .ti-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-item.root > .ti-label { font-weight: 700; }
+  .tree-item .ti-sim { font-family: "JetBrains Mono", monospace; font-size: 9.5px; color: var(--muted); letter-spacing: 0.5px; flex: 0 0 auto; }
+
+  .tree-children { position: relative; }
+  .tree-children::before {
+    content: ''; position: absolute; top: 0; bottom: 4px;
+    left: 14px; width: 1px; background: var(--line);
+  }
+  .tree-item.collapsed + .tree-children { display: none; }
+
+  .tree-panel-foot {
+    padding: 10px 12px; border-top: 1px solid var(--line);
+    display: flex; gap: 6px;
+    transition: opacity 0.2s;
+  }
+
+
+  /* canvas */
+  .canvas {
+    position: relative; overflow: hidden;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(79,209,255,0.04) 0%, transparent 60%),
+      radial-gradient(ellipse at 70% 80%, rgba(59,130,246,0.03) 0%, transparent 60%),
+      var(--bg);
+  }
+  .canvas-grid {
+    position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(79,209,255,0.18) 1px, transparent 1px);
+    background-size: 24px 24px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  .canvas-scan {
+    position: absolute; inset: 0;
+    background-image: repeating-linear-gradient(0deg, rgba(79,209,255,0.02) 0px, rgba(79,209,255,0.02) 1px, transparent 1px, transparent 3px);
+    pointer-events: none;
+    mix-blend-mode: overlay;
+  }
+
+  /* canvas chrome corners */
+  .canvas::before, .canvas::after,
+  .canvas-corners::before, .canvas-corners::after {
+    content: ''; position: absolute; width: 14px; height: 14px;
+    border-color: var(--cyan); border-style: solid; border-width: 0;
+    pointer-events: none; z-index: 4;
+    filter: drop-shadow(0 0 3px var(--cyan));
+  }
+  .canvas::before { top: 10px; left: 10px; border-top-width: 1.5px; border-left-width: 1.5px; }
+  .canvas::after { top: 10px; right: 10px; border-top-width: 1.5px; border-right-width: 1.5px; }
+  .canvas-corners::before { bottom: 10px; left: 10px; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+  .canvas-corners::after { bottom: 10px; right: 10px; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+
+  /* SVG tree */
+  .tree { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* nodes (absolute-positioned HTML) */
+  .nodes { position: absolute; inset: 0; pointer-events: none; }
+  .node {
+    position: absolute; transform: translate(-50%, -50%);
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 12px 7px 10px;
+    background: var(--bg3); border: 1px solid var(--line2);
+    font-size: 12.5px; font-weight: 500; color: var(--text);
+    cursor: move; pointer-events: auto;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+    white-space: nowrap;
+  }
+  .node:hover { border-color: var(--cyan-dim); background: var(--bg4); }
+  .node.selected {
+    border-color: var(--cyan); background: linear-gradient(180deg, rgba(79,209,255,0.12), rgba(79,209,255,0.05));
+    box-shadow: 0 0 18px rgba(79,209,255,0.45), inset 0 0 10px rgba(79,209,255,0.08);
+  }
+  .node.selected .node-dot { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+  .node .node-dot { width: 7px; height: 7px; background: var(--cyan-dim); box-shadow: 0 0 4px rgba(79,209,255,0.5); flex: 0 0 auto; border-radius: 50%; }
+  .node.root .node-dot { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .node.root { border-color: var(--cyan); background: linear-gradient(180deg, rgba(79,209,255,0.1), rgba(79,209,255,0.03)); font-weight: 700; font-size: 13px; box-shadow: 0 0 16px rgba(79,209,255,0.35); }
+  .node .sim { font-family: "JetBrains Mono", monospace; font-size: 9.5px; color: var(--muted); letter-spacing: 0.5px; margin-left: 2px; }
+  .node.selected .sim { color: var(--cyan); }
+
+  /* node label truncation when space is tight */
+  .node .node-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+  .node.compact { padding: 6px 9px 6px 8px; font-size: 11.5px; }
+  .node.compact .sim { display: none; }
+  .node.compact .node-label { max-width: 84px; }
+
+  /* ───── side panel ───── */
+  .panel {
+    background: rgba(10,16,32,0.85); backdrop-filter: blur(12px);
+    border-left: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  .panel-head {
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .panel-tag {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--cyan);
+    letter-spacing: 2px; text-transform: uppercase;
+  }
+  .panel-tag::before { content: ''; width: 5px; height: 5px; background: var(--cyan); box-shadow: 0 0 5px var(--cyan); animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 0.5; transform: scale(1) } 50% { opacity: 1; transform: scale(1.2) } }
+  .panel-title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+  .panel-sub { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: var(--muted); }
+
+  .panel-body { flex: 1; overflow-y: auto; padding: 14px 16px 20px; }
+  .panel-body::-webkit-scrollbar { width: 6px; }
+  .panel-body::-webkit-scrollbar-track { background: transparent; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--line2); }
+
+  .field { margin-bottom: 16px; }
+  .field-label {
+    font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--muted);
+    letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .field-label .val { color: var(--cyan); }
+  .field input[type=text], .field textarea {
+    width: 100%; background: var(--bg3); border: 1px solid var(--line2);
+    color: var(--text); font-family: inherit; font-size: 13px;
+    padding: 8px 10px; outline: none;
+    clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  }
+  .field input[type=text]:focus, .field textarea:focus { border-color: var(--cyan); box-shadow: 0 0 8px rgba(79,209,255,0.25); }
+  .field textarea { min-height: 60px; resize: vertical; }
+  .field-row { display: flex; gap: 8px; align-items: center; }
+
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+  .stat {
+    padding: 10px 12px; background: var(--bg3); border: 1px solid var(--line);
+    position: relative;
+  }
+  .stat .lbl { font-family: "JetBrains Mono", monospace; font-size: 9.5px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px; }
+  .stat .v { font-family: "JetBrains Mono", monospace; font-size: 16px; font-weight: 700; color: var(--cyan); }
+
+  .panel-section {
+    margin: 18px 0 10px; padding-top: 14px; border-top: 1px dashed var(--line2);
+  }
+  .panel-section:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  .panel-section-h { font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--muted2); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; }
+
+  .child-list { display: flex; flex-direction: column; gap: 4px; }
+  .child-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; background: rgba(10,16,32,0.5); border: 1px solid var(--line);
+    font-size: 12px; transition: all 0.15s; cursor: pointer;
+  }
+  .child-item:hover { border-color: var(--cyan-dim); background: rgba(79,209,255,0.05); }
+  .child-item .dot { width: 5px; height: 5px; background: var(--cyan-dim); border-radius: 50%; flex: 0 0 auto; }
+  .child-item .sim { margin-left: auto; font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--muted); }
+  .child-item .x { width: 14px; height: 14px; color: var(--muted); opacity: 0; transition: opacity 0.15s; cursor: pointer; }
+  .child-item:hover .x { opacity: 0.7; }
+  .child-item .x:hover { color: var(--pink); opacity: 1; }
+
+  .action-row { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .action-row .tb-btn { flex: 1; justify-content: center; min-width: 0; }
+
+  .danger:hover { border-color: var(--pink) !important; color: var(--pink) !important; background: rgba(255,107,157,0.05) !important; }
+
+  /* ───── toast ───── */
+  .toast {
+    position: absolute; top: 14px; right: 14px; z-index: 20;
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 14px 10px 12px; background: rgba(14,22,40,0.9); backdrop-filter: blur(8px);
+    border: 1px solid var(--cyan-dim); color: var(--text);
+    font-size: 12px; max-width: 260px;
+    box-shadow: 0 0 20px rgba(79,209,255,0.18);
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  }
+  .toast .icon { color: var(--amber); flex: 0 0 auto; filter: drop-shadow(0 0 3px var(--amber)); }
+  .toast .txt { color: var(--muted2); line-height: 1.5; }
+  .toast .txt strong { color: var(--text); display: block; font-size: 11.5px; letter-spacing: 0.3px; margin-bottom: 2px; }
+
+  /* ───── floating controls bottom ───── */
+  .zoom {
+    position: absolute; left: 14px; bottom: 14px; z-index: 15;
+    display: flex; flex-direction: column; gap: 2px;
+    background: rgba(14,22,40,0.9); backdrop-filter: blur(6px);
+    border: 1px solid var(--line2); padding: 4px;
+  }
+  .zoom button {
+    width: 28px; height: 28px; background: transparent; border: none; color: var(--muted2);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-family: "JetBrains Mono", monospace; font-size: 14px; transition: all 0.12s;
+  }
+  .zoom button:hover { color: var(--cyan); background: rgba(79,209,255,0.08); }
+  .zoom .pct { font-size: 9.5px; letter-spacing: 1px; color: var(--muted); text-align: center; padding: 2px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+
+  /* minimap */
+  .mini {
+    position: absolute; right: 14px; bottom: 14px; z-index: 15;
+    width: 200px; height: 120px;
+    background: rgba(14,22,40,0.9); backdrop-filter: blur(6px);
+    border: 1px solid var(--line2); padding: 6px;
+  }
+  .mini .m-head { display: flex; justify-content: space-between; align-items: center; font-family: "JetBrains Mono", monospace; font-size: 9px; color: var(--muted); letter-spacing: 1.5px; margin-bottom: 4px; }
+  .mini .m-head .live { color: var(--cyan); }
+  .mini .m-body { position: relative; width: 100%; height: calc(100% - 16px); background: rgba(5,8,15,0.6); border: 1px solid var(--line); overflow: hidden; }
+  .mini-node { position: absolute; width: 3px; height: 3px; background: var(--cyan); box-shadow: 0 0 2px var(--cyan); transform: translate(-50%, -50%); }
+  .mini-node.root { width: 5px; height: 5px; background: var(--amber); box-shadow: 0 0 3px var(--amber); }
+  .mini-link { position: absolute; background: rgba(79,209,255,0.25); height: 1px; transform-origin: 0 50%; }
+  .mini-viewport { position: absolute; border: 1px solid var(--cyan); background: rgba(79,209,255,0.08); pointer-events: none; }
+
+  /* connection lines use SVG */
+  .link { stroke: rgba(79,209,255,0.35); stroke-width: 1.2; fill: none; transition: stroke 0.15s, stroke-width 0.15s; }
+  .link.active { stroke: var(--cyan); stroke-width: 1.6; filter: drop-shadow(0 0 3px var(--cyan)); }
+
+  /* ───── status bar ───── */
+  .statusbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 14px;
+    background: rgba(10,16,32,0.92); border-top: 1px solid var(--line);
+    font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: var(--muted); letter-spacing: 1px;
+  }
+  .statusbar .grp { display: flex; align-items: center; gap: 6px; }
+  .statusbar .grp strong { color: var(--text); font-weight: 500; }
+  .statusbar .grp .cy { color: var(--cyan); }
+  .statusbar .spacer { flex: 1; }
+  .statusbar .live { color: var(--cyan); animation: flicker 4s infinite; }
+  @keyframes flicker { 0%, 100% { opacity: 1 } 45%, 47% { opacity: 0.3 } 48% { opacity: 1 } 78%, 79% { opacity: 0.6 } 80% { opacity: 1 } }
+
+  /* presence avatars in toolbar */
+  .presence { display: flex; align-items: center; gap: -2px; }
+  .presence .av {
+    width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font-family: "JetBrains Mono", monospace; font-size: 10px; font-weight: 700; color: #02121c;
+    margin-left: -4px; position: relative;
+  }
+  .presence .av:first-child { margin-left: 0; }
+  .presence .av.me { background: var(--cyan); }
+  .presence .av.b { background: var(--amber); }
+  .presence .av.c { background: var(--pink); }
+  .presence .av::after { content: ''; position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; background: var(--green); border: 1.5px solid var(--bg); border-radius: 50%; }
+
+  /* scan beam */
+  .canvas-beam {
+    position: absolute; left: 0; right: 0; height: 120px;
+    background: linear-gradient(180deg, transparent, rgba(79,209,255,0.04) 50%, transparent);
+    pointer-events: none; z-index: 3;
+    animation: scan 10s linear infinite;
+  }
+  @keyframes scan { 0% { transform: translateY(-120px) } 100% { transform: translateY(100vh) } }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ─── TOOLBAR ─── -->
+  <div class="toolbar">
+    <div class="tb-group tb-logo">
+      <div class="mark">
+        <svg class="outer" width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="#4fd1ff" stroke-width="0.9" stroke-dasharray="2 3" opacity="0.6"/></svg>
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3.2" fill="#4fd1ff" style="filter: drop-shadow(0 0 4px #4fd1ff)"/></svg>
+      </div>
+      <div class="name">MS<span class="cursor">_</span></div>
+    </div>
+
+    <div class="tb-group">
+      <button class="tb-btn icon-only active" id="tree-toggle" title="ツリー表示 (T)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3h4M3 8h3M6 13h4M3 3v10M6 8v5" stroke-linecap="round"/><circle cx="8" cy="3" r="1.3" fill="currentColor" stroke="none"/><circle cx="7" cy="8" r="1.3" fill="currentColor" stroke="none"/><circle cx="11" cy="13" r="1.3" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <div class="tb-title">
+        <span class="dot"></span>
+        <input value="Untitled" />
+      </div>
+    </div>
+
+    <div class="tb-group">
+      <div class="tb-seed">
+        <span class="prefix">$</span>
+        <input placeholder="起点ワード" value="コーヒー" />
+      </div>
+      <button class="tb-btn active">
+        <svg width="11" height="11" viewBox="0 0 14 14" fill="none"><path d="M3 2l8 5-8 5V2z" fill="currentColor"/></svg>
+        自動生成 (cascade)
+      </button>
+      <button class="tb-btn">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 3v10M3 8h10"/></svg>
+        展開 (expand)
+      </button>
+      <button class="tb-btn">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 8a5 5 0 015-5l3 3M13 8a5 5 0 01-5 5l-3-3"/></svg>
+        再レイアウト
+      </button>
+    </div>
+
+    <div class="tb-group">
+      <button class="tb-btn icon-only" title="Undo">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h8a3 3 0 110 6H7M3 8l3-3M3 8l3 3"/></svg>
+      </button>
+      <button class="tb-btn icon-only" title="Redo">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13 8H5a3 3 0 100 6h4M13 8l-3-3M13 8l-3 3"/></svg>
+      </button>
+    </div>
+
+    <div class="tb-spacer"></div>
+
+    <div class="tb-group">
+      <div class="presence">
+        <div class="av me">Y</div>
+        <div class="av b">K</div>
+        <div class="av c">M</div>
+      </div>
+    </div>
+
+    <div class="tb-group">
+      <button class="tb-btn">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2v8M5 7l3 3 3-3M3 12v2h10v-2"/></svg>
+        PNG
+      </button>
+      <button class="tb-btn">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2v8M5 7l3 3 3-3M3 12v2h10v-2"/></svg>
+        SVG
+      </button>
+      <button class="tb-btn primary">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="12" cy="12" r="2"/><path d="M6 7l4-2M6 9l4 2"/></svg>
+        共有
+      </button>
+    </div>
+  </div>
+
+  <!-- ─── MAIN ─── -->
+  <div class="main" id="main">
+
+    <!-- tree outline panel -->
+    <div class="tree-panel">
+      <div class="ph">
+        <div class="ph-title">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3h4M3 8h3M6 13h4M3 3v10M6 8v5" stroke-linecap="round"/><circle cx="8" cy="3" r="1.3" fill="currentColor" stroke="none"/><circle cx="7" cy="8" r="1.3" fill="currentColor" stroke="none"/><circle cx="11" cy="13" r="1.3" fill="currentColor" stroke="none"/></svg>
+          ツリー
+        </div>
+        <div class="ph-sub">/ outline · 15 nodes</div>
+        <div class="search" style="margin-top:6px">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+          <input id="tree-search" placeholder="filter…" />
+        </div>
+      </div>
+      <div class="pb" id="tree-outline"></div>
+      <div class="tree-panel-foot">
+        <button class="tb-btn" style="flex:1; justify-content:center" id="tree-expand-all">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l5 5 5-5"/></svg>
+          全展開
+        </button>
+        <button class="tb-btn" style="flex:1; justify-content:center" id="tree-collapse-all">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 10l5-5 5 5"/></svg>
+          全折畳
+        </button>
+      </div>
+    </div>
+
+    <!-- canvas -->
+    <div class="canvas" id="canvas">
+      <div class="canvas-grid"></div>
+      <div class="canvas-scan"></div>
+      <div class="canvas-beam"></div>
+      <div class="canvas-corners"></div>
+
+      <svg class="tree" id="tree"></svg>
+      <div class="nodes" id="nodes"></div>
+
+      <!-- toast -->
+      <div class="toast">
+        <svg class="icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11h.01" stroke-linecap="round"/></svg>
+        <div class="txt">
+          <strong>HINT</strong>
+          ノードを選択すると編集パネルが表示されます
+        </div>
+      </div>
+
+      <!-- zoom -->
+      <div class="zoom">
+        <button title="Zoom in" onclick="adjustZoom(0.1)">＋</button>
+        <div class="pct" id="zoom-pct">100%</div>
+        <button title="Zoom out" onclick="adjustZoom(-0.1)">－</button>
+        <button title="Fit" onclick="fitCanvas()" style="border-top: 1px solid var(--line); margin-top: 2px;">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"/></svg>
+        </button>
+      </div>
+
+      <!-- minimap -->
+      <div class="mini">
+        <div class="m-head">
+          <span>MINIMAP</span>
+          <span class="live">● LIVE</span>
+        </div>
+        <div class="m-body" id="mini-body">
+          <div class="mini-viewport" id="mini-viewport" style="left: 10%; top: 15%; width: 60%; height: 55%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- side panel -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-tag">Node Inspector</span>
+        <div class="panel-title" id="ins-title">ドリップ</div>
+        <div class="panel-sub mono">id: n_<span id="ins-id">8a3f</span> · depth <span id="ins-depth">1</span> · parent: コーヒー</div>
+      </div>
+
+      <div class="panel-body">
+
+        <div class="stat-grid">
+          <div class="stat"><div class="lbl">Similarity</div><div class="v">0.87</div></div>
+          <div class="stat"><div class="lbl">Children</div><div class="v">8</div></div>
+          <div class="stat"><div class="lbl">POS</div><div class="v" style="font-size:13px">名詞</div></div>
+          <div class="stat"><div class="lbl">Sources</div><div class="v" style="font-size:13px">chiVe</div></div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-section-h">/ label</div>
+          <div class="field">
+            <input type="text" value="ドリップ" />
+          </div>
+          <div class="field">
+            <div class="field-label">メモ</div>
+            <textarea placeholder="このノードについてのメモ…">円錐 / 台形フィルターでゆっくり抽出する方式。器具の違いで風味が大きく変わる。</textarea>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-section-h">/ children · 8</div>
+          <div class="child-list">
+            <div class="child-item"><span class="dot"></span>ネルドリップ<span class="sim">0.82</span><svg class="x" viewBox="0 0 16 16" stroke="currentColor" fill="none" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg></div>
+            <div class="child-item"><span class="dot"></span>フラワードリップ<span class="sim">0.78</span><svg class="x" viewBox="0 0 16 16" stroke="currentColor" fill="none" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg></div>
+            <div class="child-item"><span class="dot"></span>メタドリップ<span class="sim">0.75</span><svg class="x" viewBox="0 0 16 16" stroke="currentColor" fill="none" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg></div>
+            <div class="child-item"><span class="dot"></span>コーヒードリッパー<span class="sim">0.72</span><svg class="x" viewBox="0 0 16 16" stroke="currentColor" fill="none" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg></div>
+            <div class="child-item"><span class="dot"></span>パリオン入れ<span class="sim">0.69</span><svg class="x" viewBox="0 0 16 16" stroke="currentColor" fill="none" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg></div>
+            <div class="child-item"><span class="dot"></span>ドリッパー<span class="sim">0.68</span><svg class="x" viewBox="0 0 16 16" stroke="currentColor" fill="none" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg></div>
+          </div>
+
+          <div class="action-row">
+            <button class="tb-btn">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
+              子ノード追加
+            </button>
+            <button class="tb-btn">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 8l4 4 8-8"/></svg>
+              1世代 expand
+            </button>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-section-h">/ actions</div>
+          <div class="action-row">
+            <button class="tb-btn">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3h6l4 4v6H3V3zM9 3v4h4"/></svg>
+              複製
+            </button>
+            <button class="tb-btn">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 8c0-2 2-4 4-4M12 8c0 2-2 4-4 4M6 4l2-2 2 2M10 12l-2 2-2-2"/></svg>
+              再配置
+            </button>
+            <button class="tb-btn danger">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3h4v2M5 5l1 9h4l1-9"/></svg>
+              削除
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── STATUS BAR ─── -->
+  <div class="statusbar">
+    <div class="grp"><span>CONN:</span><span class="live">● yjs · synced</span></div>
+    <div class="grp"><span>NODES:</span><strong class="cy">24</strong></div>
+    <div class="grp"><span>EDGES:</span><strong class="cy">23</strong></div>
+    <div class="grp"><span>DEPTH:</span><strong class="cy">2</strong></div>
+    <div class="grp"><span>MODEL:</span><strong>chiVe-1.2</strong></div>
+    <div class="grp"><span>THRESH:</span><strong>0.42</strong></div>
+    <div class="spacer"></div>
+    <div class="grp"><span>SELECTED:</span><strong class="cy">ドリップ</strong></div>
+    <div class="grp"><span>SAVED:</span><strong>2s ago</strong></div>
+  </div>
+
+</div>
+
+<script>
+  // ─── data ───
+  const TREE = {
+    id: 'root', label: 'コーヒー', sim: 1.00, depth: 0, root: true,
+    children: [
+      { id: 'drip', label: 'ドリップ', sim: 0.87, depth: 1, selected: true,
+        children: [
+          { id: 'nel', label: 'ネルドリップ', sim: 0.82, depth: 2 },
+          { id: 'flower', label: 'フラワードリップ', sim: 0.78, depth: 2 },
+          { id: 'meta', label: 'メタドリップ', sim: 0.75, depth: 2 },
+          { id: 'dripper1', label: 'コーヒードリッパー', sim: 0.72, depth: 2 },
+          { id: 'paper', label: 'ペーパーフィルター', sim: 0.69, depth: 2 },
+          { id: 'dripper2', label: 'ドリッパー', sim: 0.68, depth: 2 },
+          { id: 'pot', label: 'ドリップポット', sim: 0.66, depth: 2 },
+          { id: 'slow', label: 'スロードリップ', sim: 0.63, depth: 2 },
+        ]
+      },
+      { id: 'ice', label: 'アイスコーヒー', sim: 0.81, depth: 1,
+        children: [
+          { id: 'jelly', label: 'コーヒーゼリー', sim: 0.71, depth: 2 },
+          { id: 'latte', label: 'アイスラテ', sim: 0.69, depth: 2 },
+          { id: 'cafe', label: 'プカフェ', sim: 0.64, depth: 2 },
+          { id: 'esp', label: 'エスプレッソ', sim: 0.62, depth: 2 },
+        ]
+      },
+    ]
+  };
+
+  // ─── layout ───
+  function layout(canvasW, canvasH) {
+    const ROOT_Y = canvasH * 0.18;
+    const L1_Y = canvasH * 0.40;
+    const L2_Y_BASE = canvasH * 0.62;
+    const L2_Y_OFFSET = 44; // stagger amount when tight
+    // assign x/y onto the ORIGINAL tree nodes
+    const leaves = [];
+    TREE.children.forEach(p => p.children.forEach(c => { c.parent = p; leaves.push(c); }));
+    const sideMargin = 40;
+    const usable = canvasW - sideMargin * 2;
+    const leafGap = usable / leaves.length;
+    const tight = leafGap < 120; // trigger compact mode
+    leaves.forEach((leaf, i) => {
+      leaf.x = sideMargin + leafGap / 2 + i * leafGap;
+      // stagger vertically in tight mode: alternate two rows
+      leaf.y = tight ? L2_Y_BASE + (i % 2) * L2_Y_OFFSET : L2_Y_BASE;
+      leaf.compact = tight;
+    });
+    // L1 x = center of its children
+    TREE.children.forEach((p) => {
+      const xs = p.children.map(k => k.x);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      p.x = (minX + maxX) / 2;
+      p.y = L1_Y;
+    });
+    // root x = center of L1s
+    const l1xs = TREE.children.map(p => p.x);
+    TREE.x = (Math.min(...l1xs) + Math.max(...l1xs)) / 2;
+    TREE.y = ROOT_Y;
+    return { leaves, tight };
+  }
+
+  function render() {
+    const canvas = document.getElementById('canvas');
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    const { leaves } = layout(W, H);
+    const tree = document.getElementById('tree');
+    tree.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const svgNS = 'http://www.w3.org/2000/svg';
+
+    // build connection paths (orthogonal elbow)
+    let svgContent = '';
+    const drawLink = (a, b, active) => {
+      const midY = (a.y + b.y) / 2;
+      const d = `M ${a.x} ${a.y + 12} L ${a.x} ${midY} L ${b.x} ${midY} L ${b.x} ${b.y - 12}`;
+      svgContent += `<path class="link ${active ? 'active' : ''}" d="${d}" />`;
+    };
+    TREE.children.forEach(p => {
+      drawLink(TREE, p, p.selected);
+      p.children.forEach(c => drawLink(p, c, p.selected));
+    });
+    tree.innerHTML = svgContent;
+
+    // nodes
+    const nodesEl = document.getElementById('nodes');
+    nodesEl.innerHTML = '';
+    const make = (n, extra = '') => {
+      const el = document.createElement('div');
+      el.className = 'node' + (n.root ? ' root' : '') + (n.selected ? ' selected' : '') + (n.compact ? ' compact' : '') + (extra ? ' ' + extra : '');
+      el.style.left = n.x + 'px';
+      el.style.top = n.y + 'px';
+      el.innerHTML = `<span class="node-dot"></span><span class="node-label">${n.label}</span><span class="sim">${n.sim.toFixed(2)}</span>`;
+      nodesEl.appendChild(el);
+      el.addEventListener('click', () => {
+        document.querySelectorAll('.node').forEach(x => x.classList.remove('selected'));
+        el.classList.add('selected');
+      });
+    };
+    make(TREE);
+    TREE.children.forEach(make);
+    TREE.children.forEach(p => p.children.forEach(make));
+
+    // minimap
+    renderMini(W, H);
+    // keep outline in sync
+    if (typeof renderOutline === 'function') renderOutline();
+  }
+
+  function renderMini(W, H) {
+    const mini = document.getElementById('mini-body');
+    // clear old
+    mini.querySelectorAll('.mini-node, .mini-link').forEach(e => e.remove());
+    const all = [TREE];
+    TREE.children.forEach(p => { all.push(p); p.children.forEach(c => all.push(c)); });
+    const mW = mini.clientWidth, mH = mini.clientHeight;
+    const sx = mW / W, sy = mH / H;
+    const plot = (n) => {
+      const d = document.createElement('div');
+      d.className = 'mini-node' + (n.root ? ' root' : '');
+      d.style.left = (n.x * sx) + 'px';
+      d.style.top = (n.y * sy) + 'px';
+      mini.appendChild(d);
+    };
+    all.forEach(plot);
+    // links
+    const addLink = (a, b) => {
+      const ax = a.x * sx, ay = a.y * sy, bx = b.x * sx, by = b.y * sy;
+      const dx = bx - ax, dy = by - ay;
+      const len = Math.hypot(dx, dy);
+      const ang = Math.atan2(dy, dx) * 180 / Math.PI;
+      const l = document.createElement('div');
+      l.className = 'mini-link';
+      l.style.left = ax + 'px';
+      l.style.top = ay + 'px';
+      l.style.width = len + 'px';
+      l.style.transform = `rotate(${ang}deg)`;
+      mini.appendChild(l);
+    };
+    TREE.children.forEach(p => {
+      addLink(TREE, p);
+      p.children.forEach(c => addLink(p, c));
+    });
+  }
+
+  // ─── zoom (visual only) ───
+  let zoom = 1;
+  function adjustZoom(delta) {
+    zoom = Math.max(0.5, Math.min(1.8, zoom + delta));
+    document.getElementById('zoom-pct').textContent = Math.round(zoom * 100) + '%';
+    const nodes = document.getElementById('nodes');
+    const tree = document.getElementById('tree');
+    nodes.style.transform = `scale(${zoom})`;
+    tree.style.transform = `scale(${zoom})`;
+    nodes.style.transformOrigin = 'center center';
+    tree.style.transformOrigin = 'center center';
+  }
+  function fitCanvas() { zoom = 1; adjustZoom(0); }
+
+  // ─── tree outline panel ───
+  const outlineEl = document.getElementById('tree-outline');
+  let collapsed = new Set();
+  let filter = '';
+
+  function flatten(node, arr = [], parent = null) {
+    arr.push({ node, parent });
+    if (node.children) node.children.forEach(c => flatten(c, arr, node));
+    return arr;
+  }
+
+  function matchesFilter(node) {
+    if (!filter) return true;
+    if (node.label.toLowerCase().includes(filter)) return true;
+    if (node.children) return node.children.some(matchesFilter);
+    return false;
+  }
+
+  function getSelectedId() {
+    const sel = document.querySelector('.node.selected');
+    const all = flatten(TREE);
+    for (const { node } of all) {
+      if (sel && sel.querySelector('.node-label')?.textContent === node.label) return node.id;
+    }
+    return 'drip';
+  }
+
+  function renderOutline() {
+    const selId = getSelectedId();
+    const build = (node, depth = 0) => {
+      const matches = matchesFilter(node);
+      if (!matches) return '';
+      const isLeaf = !node.children || node.children.length === 0;
+      const isCollapsed = collapsed.has(node.id);
+      const isSelected = node.id === selId;
+      const pad = 6 + depth * 14;
+      let html = `<div class="tree-item ${isLeaf ? 'leaf' : ''} ${isCollapsed ? 'collapsed' : ''} ${isSelected ? 'selected' : ''} ${node.root ? 'root' : ''}" data-id="${node.id}" style="padding-left:${pad}px">
+        <span class="ti-chev"><svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3l2 2 2-2"/></svg></span>
+        <span class="ti-dot"></span>
+        <span class="ti-label">${node.label}</span>
+        <span class="ti-sim">${node.sim.toFixed(2)}</span>
+      </div>`;
+      if (!isLeaf) {
+        html += `<div class="tree-children">`;
+        node.children.forEach(c => { html += build(c, depth + 1); });
+        html += `</div>`;
+      }
+      return html;
+    };
+    outlineEl.innerHTML = build(TREE);
+
+    // count
+    const totalNodes = flatten(TREE).length;
+    document.querySelector('.ph-sub').textContent = `/ outline · ${totalNodes} nodes`;
+
+    // wire up
+    outlineEl.querySelectorAll('.tree-item').forEach(el => {
+      const id = el.dataset.id;
+      el.addEventListener('click', (e) => {
+        // if chev clicked, toggle collapse
+        if (e.target.closest('.ti-chev') && !el.classList.contains('leaf')) {
+          if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id);
+          renderOutline();
+          return;
+        }
+        // otherwise, select this node on canvas
+        selectNodeById(id);
+      });
+    });
+  }
+
+  function selectNodeById(id) {
+    const all = flatten(TREE);
+    const entry = all.find(x => x.node.id === id);
+    if (!entry) return;
+    const label = entry.node.label;
+    document.querySelectorAll('.node').forEach(el => {
+      const lbl = el.querySelector('.node-label')?.textContent;
+      el.classList.toggle('selected', lbl === label);
+    });
+    // update panel title
+    const insTitle = document.getElementById('ins-title');
+    if (insTitle) insTitle.textContent = label;
+    renderOutline();
+  }
+
+  // toolbar toggle
+  const treeToggle = document.getElementById('tree-toggle');
+  const mainEl = document.getElementById('main');
+  treeToggle.addEventListener('click', () => {
+    const active = treeToggle.classList.toggle('active');
+    mainEl.classList.toggle('no-tree', !active);
+    setTimeout(render, 260); // re-layout canvas after transition
+  });
+  // keyboard shortcut T
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 't' && !e.target.matches('input, textarea')) { treeToggle.click(); }
+  });
+
+  // search
+  const searchInput = document.getElementById('tree-search');
+  searchInput.addEventListener('input', () => {
+    filter = searchInput.value.trim().toLowerCase();
+    renderOutline();
+  });
+
+  // expand/collapse all
+  document.getElementById('tree-expand-all').addEventListener('click', () => { collapsed.clear(); renderOutline(); });
+  document.getElementById('tree-collapse-all').addEventListener('click', () => {
+    collapsed = new Set();
+    flatten(TREE).forEach(({ node }) => { if (node.children && !node.root) collapsed.add(node.id); });
+    renderOutline();
+  });
+
+  // also re-sync outline when a canvas node is clicked — hook into render()
+  // (renderOutline is called from render() directly)
+
+  // init + resize
+  render();
+  renderOutline();
+  // re-sync outline when canvas nodes get clicked directly
+  document.getElementById('nodes').addEventListener('click', (e) => {
+    setTimeout(renderOutline, 0);
+  });
+  window.addEventListener('resize', render);
+</script>
+
+</body>
+</html>

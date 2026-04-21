@@ -40,7 +40,9 @@ export function ConfirmDialog({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,0.55)",
+        background: "rgba(0,0,0,0.65)",
+        backdropFilter: "blur(3px)",
+        WebkitBackdropFilter: "blur(3px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -50,30 +52,46 @@ export function ConfirmDialog({
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="clip-notch corners"
         style={{
+          position: "relative",
           width: "100%",
-          maxWidth: 380,
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 14,
-          padding: 22,
+          maxWidth: 420,
+          background: "var(--bg2)",
+          border: `1px solid ${danger ? "var(--pink)" : "var(--cyan-dim)"}`,
+          padding: "22px 24px",
           display: "flex",
           flexDirection: "column",
           gap: 14,
-          boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+          filter: `drop-shadow(0 0 18px ${danger ? "rgba(255,107,157,0.25)" : "rgba(79,209,255,0.25)"})`,
         }}
       >
         <div>
-          <h2 style={{ fontSize: 16, fontWeight: 700 }}>{title}</h2>
-          <p style={{ fontSize: 13, color: "#c5cad6", marginTop: 6, lineHeight: 1.6 }}>
+          <div
+            className="mono"
+            style={{
+              fontSize: 10,
+              letterSpacing: 2,
+              color: danger ? "var(--pink)" : "var(--cyan)",
+              textTransform: "uppercase",
+              marginBottom: 8,
+            }}
+          >
+            ● {danger ? "CONFIRM_DESTRUCTIVE" : "CONFIRM"}
+          </div>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--text)" }}>{title}</h2>
+          <p style={{ fontSize: 13, color: "var(--muted2)", marginTop: 8, lineHeight: 1.65 }}>
             {message}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={onCancel} style={btn()}>{cancelLabel}</button>
+          <button onClick={onCancel} className="clip-notch-sm" style={btnGhost}>
+            {cancelLabel}
+          </button>
           <button
             onClick={onConfirm}
-            style={danger ? btnDanger() : btnPrimary()}
+            className="clip-notch-sm"
+            style={danger ? btnDanger : btnPrimary}
           >
             {confirmLabel}
           </button>
@@ -83,24 +101,34 @@ export function ConfirmDialog({
   );
 }
 
-function btn(): React.CSSProperties {
-  return {
-    padding: "8px 14px", borderRadius: 8,
-    background: "var(--surface-2)", border: "1px solid var(--border)",
-    color: "var(--foreground)", cursor: "pointer", fontSize: 13,
-  };
-}
-function btnPrimary(): React.CSSProperties {
-  return {
-    padding: "8px 14px", borderRadius: 8,
-    background: "var(--accent)", border: "none",
-    color: "#0b0d12", cursor: "pointer", fontSize: 13, fontWeight: 700,
-  };
-}
-function btnDanger(): React.CSSProperties {
-  return {
-    padding: "8px 14px", borderRadius: 8,
-    background: "#ff6b7a", border: "none",
-    color: "#0b0d12", cursor: "pointer", fontSize: 13, fontWeight: 700,
-  };
-}
+const btnGhost: React.CSSProperties = {
+  padding: "8px 16px",
+  background: "transparent",
+  border: "1px solid var(--line2)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontSize: 13,
+  fontFamily: "var(--font-noto)",
+};
+const btnPrimary: React.CSSProperties = {
+  padding: "8px 16px",
+  background: "linear-gradient(135deg, var(--cyan), #7be3ff)",
+  border: "1px solid var(--cyan)",
+  color: "#021018",
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 700,
+  fontFamily: "var(--font-noto)",
+  boxShadow: "0 0 10px rgba(79,209,255,0.5)",
+};
+const btnDanger: React.CSSProperties = {
+  padding: "8px 16px",
+  background: "var(--pink)",
+  border: "1px solid var(--pink)",
+  color: "#1a0510",
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 700,
+  fontFamily: "var(--font-noto)",
+  boxShadow: "0 0 10px rgba(255,107,157,0.45)",
+};

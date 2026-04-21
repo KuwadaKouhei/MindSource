@@ -2,7 +2,7 @@
 
 連想語をつなげていくマインドマップ作成 Web アプリ。
 
-- 手動モードと、word-api による連想語の自動生成モード
+- 手動モードと、relation-word-api による連想語の自動生成モード
 - 匿名でも作成・編集可能、ログインすれば Supabase に保存
 - 複数人リアルタイム共同編集（Yjs + y-websocket、ライブカーソル付き）
 - ツリー表示、undo/redo、PNG / SVG エクスポート
@@ -20,7 +20,7 @@
 - **共同編集**: Yjs CRDT + `y-websocket`（独立 `collab-server` プロセス、永続化は `y-leveldb`）
 - **リモートカーソル**: Yjs awareness
 - **画像エクスポート**: `html-to-image` (PNG / SVG)
-- **連想語 API**: 隣接プロジェクト `../word-api` (chiVe) を Next の API ルート経由でプロキシ（`X-API-Key` は秘匿）
+- **連想語 API**: 隣接プロジェクト `../relation-word-api` (chiVe) を Next の API ルート経由でプロキシ（`X-API-Key` は秘匿）
 
 ---
 
@@ -29,7 +29,7 @@
 ### 作成フロー
 
 - Home の「+ 新しいマインドマップ」「ログインなしで試す」からモーダル起動 → タイトルと **起点ワード** を入力して作成
-- 起点ワードを入れるとエディタ起動直後に word-api の `/v1/cascade` を呼んで樹形図を一括生成
+- 起点ワードを入れるとエディタ起動直後に relation-word-api の `/v1/cascade` を呼んで樹形図を一括生成
 
 ### エディタ
 
@@ -72,7 +72,7 @@
 
 ### その他の UX
 
-- **トースト通知**: word-api の接続失敗、保存失敗、共有 URL コピー成功などを右下に表示
+- **トースト通知**: relation-word-api の接続失敗、保存失敗、共有 URL コピー成功などを右下に表示
 - **beforeunload フラッシュ**: タブを閉じる直前にスナップショットを `sendBeacon` で送信（2秒デバウンス中の編集も拾う）
 - 削除キー (`Delete` / `Backspace`) は無効化、右パネル経由で確認ダイアログを挟む
 
@@ -114,9 +114,9 @@ NEXT_PUBLIC_SUPABASE_URL=https://xxxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
 
 # 連想語 API（サーバー側専用、ブラウザには渡さない）
-WORD_API_BASE_URL=http://localhost:8000       # ローカル: ../word-api を docker compose up
-# 本番利用時: WORD_API_BASE_URL=https://13-193-92-78.nip.io  等
-WORD_API_KEY=dev-key-1
+RELATION_WORD_API_BASE_URL=http://localhost:8000       # ローカル: ../relation-word-api を docker compose up
+# 本番利用時: RELATION_WORD_API_BASE_URL=https://13-193-92-78.nip.io  等
+RELATION_WORD_API_KEY=dev-key-1
 
 # ブラウザから直接繋ぐ WebSocket。本番では wss:// を使う
 NEXT_PUBLIC_COLLAB_WS_URL=ws://localhost:1234
@@ -131,7 +131,7 @@ npm run dev:collab
 
 - Next: <http://localhost:3000>
 - collab-server: `ws://localhost:1234`
-- word-api: <http://localhost:8000>（`../word-api` で `docker compose up` 済みが前提）
+- relation-word-api: <http://localhost:8000>（`../relation-word-api` で `docker compose up` 済みが前提）
 
 Next だけ起動するときは `npm run dev`。
 
@@ -149,7 +149,7 @@ src/
 │   ├── maps/[id]                   # 保存済みエディタ
 │   ├── maps/local/[localId]        # 匿名ドラフトエディタ
 │   └── api/
-│       ├── word/{related,cascade}  # word-api プロキシ（X-API-Key 秘匿）
+│       ├── word/{related,cascade}  # relation-word-api プロキシ（X-API-Key 秘匿）
 │       ├── maps/...                # マップ CRUD + スナップショット + import
 │       ├── maps/[id]/collaborators # コラボレーター CRUD（オーナーのみ）
 │       ├── settings                # user_settings CRUD
@@ -165,7 +165,7 @@ src/
 │   └── ui/                         # Header, Toaster, ConfirmDialog, LoginForm
 ├── lib/
 │   ├── supabase/{client,server}.ts
-│   ├── word-api/{server,client,types}.ts
+│   ├── relation-word-api/{server,client,types}.ts
 │   ├── yjs/{doc,binding,provider,nodeRenameBridge}.ts
 │   ├── storage/localDraft.ts       # idb-keyval
 │   ├── settings/{schema,defaults}.ts
@@ -223,7 +223,7 @@ supabase/migrations/                # 0001 〜 0004 の SQL
 
 ## 動作確認シナリオ
 
-1. `npm run dev:collab` で両プロセス起動（`../word-api` が別途稼働している前提）
+1. `npm run dev:collab` で両プロセス起動（`../relation-word-api` が別途稼働している前提）
 2. `/` → 「ログインなしで試す」モーダルでタイトルと起点ワード「猫」を入れて作成 → 樹形図が自動生成
 3. ノードをダブルクリックしてラベル編集
 4. `Ctrl+Z` で元に戻す
@@ -232,7 +232,7 @@ supabase/migrations/                # 0001 〜 0004 の SQL
 7. メールでログイン → `/me` で表示名を設定 / ドラフトをインポート
 8. 保存版マップでツールバー「メンバー」→ UUID 指定でコラボレーター追加
 9. 2 つのブラウザ（または incognito）で同じ共有 URL を開く → カーソルが見え、編集が即時反映
-10. word-api を停止してから自動生成 → 赤いトーストで「接続できません」が表示される
+10. relation-word-api を停止してから自動生成 → 赤いトーストで「接続できません」が表示される
 
 ---
 
@@ -240,7 +240,7 @@ supabase/migrations/                # 0001 〜 0004 の SQL
 
 詳細は [DEPLOY.md](./DEPLOY.md) 参照。
 
-- **Next.js → Vercel**: `vercel deploy --prod`、env に Supabase / word-api / collab WS URL
+- **Next.js → Vercel**: `vercel deploy --prod`、env に Supabase / relation-word-api / collab WS URL
 - **collab-server → Fly.io / Render / 自前 VPS**: `collab-server/Dockerfile` + `fly.toml.example` を雛形に、`y-leveldb` 用の永続ボリュームをマウント
 - Supabase の Redirect URLs に本番ドメインを追加
 
@@ -248,7 +248,7 @@ supabase/migrations/                # 0001 〜 0004 の SQL
 
 ## 既知の制約
 
-- word-api 本番エンドポイント（nip.io の EC2）は断続稼働。開発時はローカル `http://localhost:8000` が安定
+- relation-word-api 本番エンドポイント（nip.io の EC2）は断続稼働。開発時はローカル `http://localhost:8000` が安定
 - y-websocket 単独構成は 1 プロセス前提。水平スケールには Redis pub/sub アダプタ等が必要
 - スナップショット同期はクライアント任せ（2秒デバウンス + unload 時 beacon）。極端に速いタブ閉じで最新が届かない可能性は残る
 - React Flow は v12 系（`@xyflow/react`）。旧 `reactflow` パッケージではない

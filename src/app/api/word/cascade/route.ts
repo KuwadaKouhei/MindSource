@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchCascade, WordApiError } from "@/lib/word-api/server";
-import type { CascadeParams } from "@/lib/word-api/types";
+import { fetchCascade, RelationWordApiError } from "@/lib/relation-word-api/server";
+import type { CascadeParams } from "@/lib/relation-word-api/types";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const data = await fetchCascade(body as CascadeParams);
     return NextResponse.json(data);
   } catch (e) {
-    if (e instanceof WordApiError) {
+    if (e instanceof RelationWordApiError) {
       return NextResponse.json(
         { error: e.message, detail: e.detail },
         { status: e.status },

@@ -5,6 +5,7 @@ import type { Edge, Node } from "@xyflow/react";
 import type { WordNodeData } from "@/lib/yjs/binding";
 import { colorForGen } from "@/lib/flow/colors";
 import { useColorScheme } from "@/components/flow/ColorSchemeContext";
+import { Glyph } from "@/components/ui/primitives/Glyph";
 
 type TreeNode = {
   id: string;
@@ -15,9 +16,6 @@ type TreeNode = {
 };
 
 function buildForest(nodes: Node<WordNodeData>[], edges: Edge[]): TreeNode[] {
-  // Build adjacency (parent -> children). If a node has multiple parents
-  // (DAG from cascade), attach it under the lowest-generation parent only
-  // so the tree stays a tree rather than duplicating subgraphs.
   const byId = new Map<string, Node<WordNodeData>>();
   for (const n of nodes) byId.set(n.id, n);
 
@@ -61,6 +59,15 @@ function buildForest(nodes: Node<WordNodeData>[], edges: Edge[]): TreeNode[] {
   return roots;
 }
 
+function collectIds(forest: TreeNode[], acc: Set<string>) {
+  for (const n of forest) {
+    if (n.children.length) {
+      acc.add(n.id);
+      collectIds(n.children, acc);
+    }
+  }
+}
+
 type Props = {
   nodes: Node<WordNodeData>[];
   edges: Edge[];
@@ -69,7 +76,7 @@ type Props = {
   onClose: () => void;
 };
 
-export function TreePanel({ nodes, edges, selectedId, onSelect, onClose }: Props) {
+export function TreePanel({ nodes, edges, selectedId, onSelect }: Props) {
   const forest = useMemo(() => buildForest(nodes, edges), [nodes, edges]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
@@ -87,51 +94,102 @@ export function TreePanel({ nodes, edges, selectedId, onSelect, onClose }: Props
   const filter = query.trim().toLowerCase();
   const matches = (w: string) => !filter || w.toLowerCase().includes(filter);
 
+  const expandAll = () => setCollapsed(new Set());
+  const collapseAll = () => {
+    const ids = new Set<string>();
+    collectIds(forest, ids);
+    setCollapsed(ids);
+  };
+
   return (
     <aside
       style={{
-        width: 280,
-        borderRight: "1px solid var(--border)",
-        background: "var(--surface)",
+        width: "100%",
+        height: "100%",
+        background: "var(--bg2)",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
       }}
     >
+      {/* Header */}
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "10px 12px",
-          borderBottom: "1px solid var(--border)",
+          padding: "12px 14px 8px",
+          borderBottom: "1px solid var(--line)",
         }}
       >
-        <strong style={{ fontSize: 13 }}>ツリー ({nodes.length})</strong>
-        <button onClick={onClose} style={closeBtn()} title="閉じる">
-          ×
-        </button>
-      </div>
-      <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)" }}>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="検索…"
+        <div
           style={{
-            width: "100%",
-            padding: "6px 8px",
-            borderRadius: 6,
-            background: "var(--surface-2)",
-            border: "1px solid var(--border)",
-            color: "var(--foreground)",
-            fontSize: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 4,
           }}
-        />
+        >
+          <Glyph name="listTree" size={14} style={{ color: "var(--cyan)" }} />
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: "var(--text)",
+              letterSpacing: 0.3,
+            }}
+          >
+            / ツリー
+          </span>
+        </div>
+        <div
+          className="mono"
+          style={{
+            fontSize: 10,
+            letterSpacing: 0.6,
+            color: "var(--muted)",
+            marginBottom: 10,
+          }}
+        >
+          / outline · {nodes.length} nodes
+        </div>
+        <div
+          className="clip-notch-sm"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "0 8px",
+            height: 26,
+            background: "var(--bg3)",
+            border: "1px solid var(--line2)",
+          }}
+        >
+          <Glyph name="search" size={12} style={{ color: "var(--muted)" }} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="filter…"
+            className="mono"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              color: "var(--text)",
+              fontSize: 11,
+              letterSpacing: 0.3,
+            }}
+          />
+        </div>
       </div>
-      <div style={{ flex: 1, overflow: "auto", padding: "8px 4px" }}>
+
+      {/* Body */}
+      <div style={{ flex: 1, overflow: "auto", padding: "6px 4px" }}>
         {forest.length === 0 ? (
-          <div style={{ color: "#9aa3b5", fontSize: 12, padding: 12 }}>
-            ノードがありません
+          <div
+            className="mono"
+            style={{ color: "var(--muted)", fontSize: 11, padding: "14px 12px" }}
+          >
+            &gt; no nodes yet
           </div>
         ) : (
           forest.map((root) => (
@@ -146,13 +204,50 @@ export function TreePanel({ nodes, edges, selectedId, onSelect, onClose }: Props
               matches={matches}
               filterActive={!!filter}
               scheme={scheme}
+              isRoot
             />
           ))
         )}
       </div>
+
+      {/* Footer */}
+      <div
+        style={{
+          padding: "8px 10px",
+          borderTop: "1px solid var(--line)",
+          display: "flex",
+          gap: 6,
+        }}
+      >
+        <button
+          onClick={expandAll}
+          className="clip-notch-sm mono"
+          style={footerBtnStyle}
+        >
+          ↓ 全展開
+        </button>
+        <button
+          onClick={collapseAll}
+          className="clip-notch-sm mono"
+          style={footerBtnStyle}
+        >
+          ↑ 全折畳
+        </button>
+      </div>
     </aside>
   );
 }
+
+const footerBtnStyle: React.CSSProperties = {
+  flex: 1,
+  padding: "5px 8px",
+  fontSize: 10,
+  letterSpacing: 0.4,
+  color: "var(--muted2)",
+  background: "var(--bg3)",
+  border: "1px solid var(--line2)",
+  cursor: "pointer",
+};
 
 type TreeItemProps = {
   node: TreeNode;
@@ -164,6 +259,7 @@ type TreeItemProps = {
   matches: (word: string) => boolean;
   filterActive: boolean;
   scheme: string;
+  isRoot?: boolean;
 };
 
 function TreeItem({
@@ -176,15 +272,15 @@ function TreeItem({
   matches,
   filterActive,
   scheme,
+  isRoot = false,
 }: TreeItemProps) {
-  // Show a branch if it or any descendant matches the filter.
   const selfMatches = matches(node.word);
   const anyDescendantMatches = filterActive && hasMatch(node.children, matches);
   if (filterActive && !selfMatches && !anyDescendantMatches) return null;
 
   const hasChildren = node.children.length > 0;
   const isCollapsed = collapsed.has(node.id);
-  const color = colorForGen(scheme, node.generation);
+  const genColor = colorForGen(scheme, node.generation);
   const isSelected = selectedId === node.id;
 
   return (
@@ -195,14 +291,17 @@ function TreeItem({
           display: "flex",
           alignItems: "center",
           gap: 4,
-          padding: "4px 6px",
+          padding: "4px 8px 4px 6px",
           paddingLeft: 6 + depth * 14,
-          borderRadius: 6,
           cursor: "pointer",
-          background: isSelected ? "var(--surface-2)" : "transparent",
-          border: isSelected ? `1px solid ${color}` : "1px solid transparent",
-          color: "var(--foreground)",
+          position: "relative",
+          background: isSelected
+            ? "linear-gradient(90deg, rgba(79,209,255,0.14), rgba(79,209,255,0.04))"
+            : "transparent",
+          boxShadow: isSelected ? "inset 2px 0 0 var(--cyan)" : undefined,
+          color: isSelected ? "var(--text)" : "var(--muted2)",
           fontSize: 12,
+          transition: "background 0.12s",
         }}
       >
         <button
@@ -211,24 +310,29 @@ function TreeItem({
             if (hasChildren) onToggle(node.id);
           }}
           style={{
-            width: 16,
-            height: 16,
+            width: 14,
+            height: 14,
             border: "none",
             background: "transparent",
-            color: hasChildren ? "var(--foreground)" : "transparent",
-            fontSize: 10,
+            color: hasChildren ? "var(--muted2)" : "transparent",
             cursor: hasChildren ? "pointer" : "default",
             padding: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transform: hasChildren && !isCollapsed ? "rotate(0deg)" : "rotate(-90deg)",
+            transition: "transform 0.15s",
           }}
         >
-          {hasChildren ? (isCollapsed ? "▶" : "▼") : "·"}
+          {hasChildren ? <Glyph name="chevron" size={10} /> : null}
         </button>
         <span
           style={{
             width: 6,
             height: 6,
             borderRadius: 9999,
-            background: color,
+            background: isRoot ? "var(--amber)" : genColor,
+            boxShadow: isRoot ? "0 0 5px var(--amber)" : undefined,
             flexShrink: 0,
           }}
         />
@@ -238,17 +342,29 @@ function TreeItem({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
-            fontWeight: isSelected ? 600 : 400,
+            fontWeight: isSelected || isRoot ? 700 : 400,
+            color: isSelected ? "var(--text)" : isRoot ? "var(--text)" : "var(--muted2)",
           }}
         >
           {node.word}
         </span>
         {node.score != null && (
-          <span style={{ color: "#7a8190", fontSize: 10 }}>{node.score.toFixed(2)}</span>
+          <span
+            className="mono"
+            style={{ color: "var(--muted)", fontSize: 9.5, letterSpacing: 0.3 }}
+          >
+            {node.score.toFixed(2)}
+          </span>
         )}
       </div>
       {hasChildren && !isCollapsed && (
-        <div>
+        <div
+          style={{
+            position: "relative",
+            marginLeft: 6 + depth * 14 + 7,
+            borderLeft: "1px solid var(--line)",
+          }}
+        >
           {node.children.map((c) => (
             <TreeItem
               key={c.id}
@@ -275,18 +391,4 @@ function hasMatch(children: TreeNode[], m: (w: string) => boolean): boolean {
     if (hasMatch(c.children, m)) return true;
   }
   return false;
-}
-
-function closeBtn(): React.CSSProperties {
-  return {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    border: "1px solid var(--border)",
-    background: "var(--surface-2)",
-    color: "var(--foreground)",
-    cursor: "pointer",
-    fontSize: 14,
-    lineHeight: 1,
-  };
 }

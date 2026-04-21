@@ -2,7 +2,6 @@
 
 import {
   Background,
-  Controls,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -20,6 +19,11 @@ import { NodeInspector } from "./NodeInspector";
 import { PresenceBar } from "./PresenceBar";
 import { TreePanel } from "./TreePanel";
 import { RemoteCursors } from "./RemoteCursors";
+import { StatusBar } from "./StatusBar";
+import { HintToast } from "./HintToast";
+import { ZoomControls } from "./ZoomControls";
+import { MinimapHeader } from "./MinimapHeader";
+import { ScanOverlay } from "@/components/ui/primitives/ScanOverlay";
 import { useToast } from "@/components/ui/Toaster";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CollaboratorsModal } from "./CollaboratorsModal";
@@ -104,13 +108,13 @@ function CanvasInner({
         msg.includes("networkerror") ||
         msg.includes("unreachable") ||
         msg.includes("timeout") ||
-        msg.includes("word-api 502") ||
-        msg.includes("word-api 504");
+        msg.includes("relation-word-api 502") ||
+        msg.includes("relation-word-api 504");
       toast.show({
         kind: "error",
         title: ctx === "cascade" ? "自動生成に失敗" : "連想取得に失敗",
         message: offline
-          ? "word-api に接続できません。サーバーが起動しているか確認してください。"
+          ? "relation-word-api に接続できません。サーバーが起動しているか確認してください。"
           : err.message,
       });
     },
@@ -118,7 +122,7 @@ function CanvasInner({
 
   const [title, setTitle] = useState(initialTitle);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [treeOpen, setTreeOpen] = useState(false);
+  const [treeOpen, setTreeOpen] = useState(true);
   const [collabOpen, setCollabOpen] = useState(false);
 
   const focusNode = useCallback(
@@ -264,22 +268,27 @@ function CanvasInner({
     return () => window.removeEventListener(createMindmapDocHandle.RENAME_EVENT, onRename);
   }, [mm]);
 
-  // Keyboard shortcuts: Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z or Ctrl+Y = redo
+  // Keyboard shortcuts: Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z or Ctrl+Y = redo, T = toggle tree
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
-      // Skip when typing in an input/textarea
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
+      const typing = !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable));
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod) {
+        if (typing) return;
+        if (e.key === "z" && !e.shiftKey) {
+          e.preventDefault();
+          mm.undo();
+        } else if ((e.key === "z" && e.shiftKey) || e.key === "y") {
+          e.preventDefault();
+          mm.redo();
+        }
         return;
       }
-      if (e.key === "z" && !e.shiftKey) {
+      if (typing) return;
+      if (e.key === "t" || e.key === "T") {
         e.preventDefault();
-        mm.undo();
-      } else if ((e.key === "z" && e.shiftKey) || e.key === "y") {
-        e.preventDefault();
-        mm.redo();
+        setTreeOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -298,6 +307,19 @@ function CanvasInner({
     autoSeedFiredRef.current = true;
     wrappedCascade(autoSeedWord);
   }, [autoSeedWord, wrappedCascade, mm.doc]);
+
+  // Re-fit the view when the tree panel toggles so the layout re-centres
+  const firstTreeToggleRef = useRef(true);
+  useEffect(() => {
+    if (firstTreeToggleRef.current) {
+      firstTreeToggleRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      rf.fitView?.({ padding: 0.12, duration: 300 });
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [treeOpen, rf]);
 
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const pendingDeleteNode = useMemo(
@@ -348,31 +370,63 @@ function CanvasInner({
       );
   }, [toast]);
 
+  const maxDepth = useMemo(() => {
+    let d = 0;
+    for (const n of mm.nodes) {
+      const g = (n.data as WordNodeData | undefined)?.generation ?? 0;
+      if (g > d) d = g;
+    }
+    return d;
+  }, [mm.nodes]);
+
   return (
     <ColorSchemeContext.Provider value={settings.color_scheme}>
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <Toolbar
-        title={title}
-        onTitleChange={handleTitle}
-        onCascade={wrappedCascade}
-        onExpandSelected={() => selectedId && expandNode(selectedId)}
-        onReLayout={handleReLayout}
-        onExportPng={() => captureViewport("png")}
-        onExportSvg={() => captureViewport("svg")}
-        onShare={handleShare}
-        onSave={onSave}
-        saveState={saveState}
-        autoMode={settings.auto_mode}
-        selectedId={selectedId}
-        loading={loading}
-        onToggleTree={() => setTreeOpen((v) => !v)}
-        treeOpen={treeOpen}
-        onUndo={mm.undo}
-        onRedo={mm.redo}
-        onCollaborators={savedMapId ? () => setCollabOpen(true) : undefined}
-      />
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        {treeOpen && (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateRows: "52px 1fr 28px",
+          gridTemplateColumns: treeOpen ? "260px 1fr 320px" : "0px 1fr 320px",
+          gridTemplateAreas: '"toolbar toolbar toolbar" "tree canvas inspector" "status status status"',
+          height: "100vh",
+          width: "100vw",
+          background: "var(--bg)",
+          color: "var(--text)",
+          overflow: "hidden",
+          transition: "grid-template-columns 0.25s ease",
+        }}
+      >
+        <div style={{ gridArea: "toolbar", minWidth: 0 }}>
+          <Toolbar
+            title={title}
+            onTitleChange={handleTitle}
+            onCascade={wrappedCascade}
+            onExpandSelected={() => selectedId && expandNode(selectedId)}
+            onReLayout={handleReLayout}
+            onExportPng={() => captureViewport("png")}
+            onExportSvg={() => captureViewport("svg")}
+            onShare={handleShare}
+            onSave={onSave}
+            saveState={saveState}
+            autoMode={settings.auto_mode}
+            selectedId={selectedId}
+            loading={loading}
+            onToggleTree={() => setTreeOpen((v) => !v)}
+            treeOpen={treeOpen}
+            onUndo={mm.undo}
+            onRedo={mm.redo}
+            onCollaborators={savedMapId ? () => setCollabOpen(true) : undefined}
+            presence={<PresenceBar provider={mm.provider.current} />}
+          />
+        </div>
+
+        <div
+          style={{
+            gridArea: "tree",
+            minWidth: 0,
+            overflow: "hidden",
+            borderRight: treeOpen ? "1px solid var(--line)" : "none",
+          }}
+        >
           <TreePanel
             nodes={mm.nodes}
             edges={mm.edges}
@@ -380,78 +434,166 @@ function CanvasInner({
             onSelect={focusNode}
             onClose={() => setTreeOpen(false)}
           />
-        )}
-        <div style={{ flex: 1, position: "relative" }}>
-          <ReactFlow
+        </div>
+
+        <div
+          style={{
+            gridArea: "canvas",
+            position: "relative",
+            minWidth: 0,
+            overflow: "hidden",
+            background: "var(--bg)",
+          }}
+        >
+          <ScanOverlay scope="canvas" />
+          {/* 4 L-corner marks */}
+          <CanvasCorners />
+          <div style={{ position: "absolute", inset: 0, zIndex: 3 }}>
+            <ReactFlow
+              nodes={mm.nodes}
+              edges={mm.edges}
+              nodeTypes={nodeTypes}
+              onNodesChange={mm.onNodesChange}
+              onEdgesChange={mm.onEdgesChange}
+              onConnect={mm.onConnect}
+              onNodeClick={(_, n: Node) => {
+                setSelectedId(n.id);
+              }}
+              onPaneClick={() => setSelectedId(null)}
+              fitView
+              proOptions={{ hideAttribution: true }}
+              deleteKeyCode={null}
+              minZoom={0.5}
+              maxZoom={1.8}
+            >
+              <Background gap={24} color="transparent" />
+              <MiniMap
+                pannable
+                zoomable
+                style={{
+                  width: 200,
+                  height: 120,
+                }}
+                maskColor="rgba(5, 8, 15, 0.55)"
+                nodeColor={(n) => {
+                  const gen = (n.data as { generation?: number } | undefined)?.generation ?? 0;
+                  return colorForGen(settings.color_scheme, gen);
+                }}
+                nodeStrokeColor="var(--cyan)"
+                nodeStrokeWidth={1.5}
+                nodeBorderRadius={0}
+              />
+              <RemoteCursors provider={mm.provider.current} />
+            </ReactFlow>
+          </div>
+          <HintToast visible={!selectedId && mm.nodes.length > 0} />
+          <ZoomControls />
+          <MinimapHeader />
+        </div>
+
+        <div style={{ gridArea: "inspector", minWidth: 0, overflow: "hidden" }}>
+          <NodeInspector
+            node={selectedNode}
             nodes={mm.nodes}
             edges={mm.edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={mm.onNodesChange}
-            onEdgesChange={mm.onEdgesChange}
-            onConnect={mm.onConnect}
-            onNodeClick={(_, n: Node) => {
-              setSelectedId(n.id);
-            }}
-            onPaneClick={() => setSelectedId(null)}
-            fitView
-            proOptions={{ hideAttribution: true }}
-            deleteKeyCode={null}
-          >
-            <Background gap={24} />
-            <MiniMap
-              pannable
-              zoomable
-              style={{
-                background: "var(--surface-2)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-              }}
-              maskColor="rgba(11, 13, 18, 0.6)"
-              nodeColor={(n) => {
-                const gen = (n.data as { generation?: number } | undefined)?.generation ?? 0;
-                return colorForGen(settings.color_scheme, gen);
-              }}
-              nodeStrokeColor="rgba(255,255,255,0.35)"
-              nodeStrokeWidth={2}
-              nodeBorderRadius={6}
-            />
-            <Controls />
-            <RemoteCursors provider={mm.provider.current} />
-          </ReactFlow>
-          <div style={{ position: "absolute", top: 8, right: 8 }}>
-            <PresenceBar provider={mm.provider.current} />
-          </div>
+            onRename={mm.renameNode}
+            onDelete={handleDelete}
+            onAddChild={handleAddChild}
+            onExpand={expandNode}
+            onReLayout={handleReLayout}
+            onFocusNode={focusNode}
+            expanding={loading}
+          />
         </div>
-        <NodeInspector
-          node={selectedNode}
-          onRename={mm.renameNode}
-          onDelete={handleDelete}
-          onAddChild={handleAddChild}
-          onExpand={expandNode}
-          expanding={loading}
+
+        <div style={{ gridArea: "status", minWidth: 0 }}>
+          <StatusBar
+            nodesCount={mm.nodes.length}
+            edgesCount={mm.edges.length}
+            depth={maxDepth}
+            selectedLabel={(selectedNode?.data as WordNodeData | undefined)?.word ?? null}
+            saveState={saveState}
+            providerReady={mm.providerReady}
+            enableCollab={enableCollab}
+          />
+        </div>
+
+        {savedMapId && (
+          <CollaboratorsModal
+            open={collabOpen}
+            onClose={() => setCollabOpen(false)}
+            mapId={savedMapId}
+          />
+        )}
+        <ConfirmDialog
+          open={pendingDelete !== null}
+          title="ノードを削除しますか？"
+          message={
+            pendingDeleteNode
+              ? `「${(pendingDeleteNode.data as { word?: string })?.word ?? pendingDelete}」と、このノードに繋がっているエッジを削除します。`
+              : ""
+          }
+          confirmLabel="削除"
+          danger
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
         />
       </div>
-      {savedMapId && (
-        <CollaboratorsModal
-          open={collabOpen}
-          onClose={() => setCollabOpen(false)}
-          mapId={savedMapId}
-        />
-      )}
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        title="ノードを削除しますか？"
-        message={
-          pendingDeleteNode
-            ? `「${(pendingDeleteNode.data as { word?: string })?.word ?? pendingDelete}」と、このノードに繋がっているエッジを削除します。`
-            : ""
-        }
-        confirmLabel="削除"
-        danger
-        onConfirm={confirmDelete}
-        onCancel={() => setPendingDelete(null)}
-      />
-    </div>
     </ColorSchemeContext.Provider>
+  );
+}
+
+function CanvasCorners() {
+  const s: React.CSSProperties = {
+    position: "absolute",
+    width: 20,
+    height: 20,
+    pointerEvents: "none",
+    zIndex: 4,
+    filter: "drop-shadow(0 0 4px rgba(79,209,255,0.55))",
+  };
+  return (
+    <>
+      <span
+        aria-hidden
+        style={{
+          ...s,
+          top: 10,
+          left: 10,
+          borderTop: "1.5px solid var(--cyan)",
+          borderLeft: "1.5px solid var(--cyan)",
+        }}
+      />
+      <span
+        aria-hidden
+        style={{
+          ...s,
+          top: 10,
+          right: 10,
+          borderTop: "1.5px solid var(--cyan)",
+          borderRight: "1.5px solid var(--cyan)",
+        }}
+      />
+      <span
+        aria-hidden
+        style={{
+          ...s,
+          bottom: 10,
+          left: 10,
+          borderBottom: "1.5px solid var(--cyan)",
+          borderLeft: "1.5px solid var(--cyan)",
+        }}
+      />
+      <span
+        aria-hidden
+        style={{
+          ...s,
+          bottom: 10,
+          right: 10,
+          borderBottom: "1.5px solid var(--cyan)",
+          borderRight: "1.5px solid var(--cyan)",
+        }}
+      />
+    </>
   );
 }

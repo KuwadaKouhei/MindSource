@@ -80,22 +80,33 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             key={t.id}
             role="status"
             onClick={() => dismiss(t.id)}
+            className="clip-notch-sm"
             style={{
               pointerEvents: "auto",
               maxWidth: 360,
-              background: "var(--surface)",
+              background: "rgba(10,16,32,0.94)",
               border: `1px solid ${colorFor(t.kind)}`,
-              borderLeftWidth: 4,
+              borderLeftWidth: 2,
               padding: "10px 14px",
-              borderRadius: 10,
-              color: "var(--foreground)",
+              color: "var(--text)",
               fontSize: 13,
               cursor: "pointer",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
+              filter: `drop-shadow(0 0 8px ${colorFor(t.kind)}55)`,
             }}
           >
             {t.title && (
-              <div style={{ fontWeight: 700, marginBottom: 2, color: colorFor(t.kind) }}>
+              <div
+                className="mono"
+                style={{
+                  fontWeight: 700,
+                  marginBottom: 3,
+                  color: colorFor(t.kind),
+                  fontSize: 11,
+                  letterSpacing: 1.2,
+                  textTransform: "uppercase",
+                }}
+              >
+                <span>● </span>
                 {t.title}
               </div>
             )}
@@ -109,9 +120,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
 function colorFor(kind: ToastKind): string {
   switch (kind) {
-    case "success": return "#8bffb8";
-    case "error":   return "#ffb3bd";
-    case "warning": return "#ffd76b";
-    default:        return "var(--accent)";
+    case "success": return "var(--green)";
+    case "error":   return "var(--pink)";
+    case "warning": return "var(--amber)";
+    default:        return "var(--cyan)";
   }
 }

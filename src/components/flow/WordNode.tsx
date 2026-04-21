@@ -1,6 +1,6 @@
 "use client";
 
-import { Handle, Position, useReactFlow, type NodeProps } from "@xyflow/react";
+import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { WordNodeData } from "@/lib/yjs/binding";
 import { createMindmapDocHandle } from "@/lib/yjs/nodeRenameBridge";
@@ -10,13 +10,12 @@ import { useColorScheme } from "./ColorSchemeContext";
 function WordNodeInner({ id, data, selected }: NodeProps) {
   const d = data as WordNodeData;
   const scheme = useColorScheme();
-  const color = colorForGen(scheme, d.generation);
-  const rf = useReactFlow();
+  const genColor = colorForGen(scheme, d.generation);
+  const isRoot = d.generation === 0;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(d.word);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Keep draft in sync when the label is updated by another client or auto-gen
   useEffect(() => {
     if (!editing) setDraft(d.word);
   }, [d.word, editing]);
@@ -35,7 +34,6 @@ function WordNodeInner({ id, data, selected }: NodeProps) {
     const next = draft.trim();
     setEditing(false);
     if (!next || next === d.word) return;
-    // Dispatch a custom event; Canvas listens and writes to Y.Doc (single source of truth).
     window.dispatchEvent(
       new CustomEvent(createMindmapDocHandle.RENAME_EVENT, {
         detail: { id, word: next },
@@ -48,87 +46,136 @@ function WordNodeInner({ id, data, selected }: NodeProps) {
     setEditing(false);
   }, [d.word]);
 
+  const dotColor = isRoot ? "var(--amber)" : genColor;
+  const borderColor = selected
+    ? "var(--cyan)"
+    : isRoot
+      ? "var(--amber)"
+      : "var(--line2)";
+  const background = selected
+    ? "linear-gradient(135deg, rgba(79,209,255,0.22), rgba(79,209,255,0.06))"
+    : isRoot
+      ? "linear-gradient(135deg, rgba(255,184,77,0.12), rgba(14,22,40,0.95))"
+      : "var(--bg3)";
+  const glow = selected
+    ? "0 0 14px rgba(79,209,255,0.5)"
+    : isRoot
+      ? "0 0 10px rgba(255,184,77,0.35)"
+      : "none";
+
   return (
     <div
-      onDoubleClick={(e) => {
-        // Swallow the event so Canvas.onNodeDoubleClick (expand) does not fire.
-        e.stopPropagation();
-        setEditing(true);
-      }}
       style={{
-        minWidth: 120,
-        padding: "8px 14px",
-        borderRadius: 14,
-        background: "var(--surface)",
-        border: `1.5px solid ${selected ? color : "var(--border)"}`,
-        boxShadow: selected ? `0 0 0 3px ${color}33` : undefined,
-        color: "var(--foreground)",
-        fontSize: 14,
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        textAlign: "center",
-        justifyContent: "center",
+        filter: `drop-shadow(${glow})`,
       }}
     >
-      <Handle type="target" position={Position.Top} style={{ background: color }} />
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 9999,
-          background: color,
-          flexShrink: 0,
+      <div
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          setEditing(true);
         }}
-      />
-      {editing ? (
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              commit();
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              cancel();
-            }
-            e.stopPropagation();
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          className="nodrag"
+        className="clip-notch-sm"
+        style={{
+          minWidth: 108,
+          padding: "7px 14px",
+          background,
+          border: `1.5px solid ${borderColor}`,
+          color: "var(--text)",
+          fontSize: isRoot ? 13 : 12.5,
+          fontWeight: isRoot ? 700 : 500,
+          fontFamily: "var(--font-noto)",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          textAlign: "center",
+          justifyContent: "center",
+          transition: "border-color 0.15s, background 0.15s",
+        }}
+      >
+        <Handle
+          type="target"
+          position={Position.Top}
           style={{
-            fontWeight: 500,
-            background: "var(--surface-2)",
-            border: `1px solid ${color}`,
-            borderRadius: 6,
-            color: "var(--foreground)",
-            padding: "2px 6px",
-            fontSize: 14,
-            outline: "none",
-            minWidth: 80,
-            maxWidth: 220,
+            width: 1,
+            height: 1,
+            opacity: 0,
+            pointerEvents: "none",
+            background: "transparent",
+            border: "none",
           }}
         />
-      ) : (
-        <span style={{ fontWeight: 500 }}>{d.word}</span>
-      )}
-      {d.score != null && !editing && (
         <span
           style={{
-            fontSize: 10,
-            color: "#9aa3b5",
-            background: "var(--surface-2)",
-            padding: "2px 6px",
-            borderRadius: 8,
+            width: 6,
+            height: 6,
+            borderRadius: 9999,
+            background: dotColor,
+            boxShadow: isRoot ? "0 0 6px var(--amber)" : `0 0 4px ${genColor}`,
+            flexShrink: 0,
           }}
-        >
-          {d.score.toFixed(2)}
-        </span>
-      )}
-      <Handle type="source" position={Position.Bottom} style={{ background: color }} />
+        />
+        {editing ? (
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commit();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancel();
+              }
+              e.stopPropagation();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="nodrag"
+            style={{
+              fontWeight: 500,
+              background: "var(--bg2)",
+              border: `1px solid var(--cyan)`,
+              color: "var(--text)",
+              padding: "2px 6px",
+              fontSize: 13,
+              outline: "none",
+              minWidth: 80,
+              maxWidth: 220,
+              fontFamily: "var(--font-noto)",
+            }}
+          />
+        ) : (
+          <span>{d.word}</span>
+        )}
+        {d.score != null && !editing && !isRoot && (
+          <span
+            className="mono"
+            style={{
+              fontSize: 9,
+              color: "var(--muted2)",
+              background: "rgba(5,8,15,0.6)",
+              padding: "1.5px 5px",
+              letterSpacing: 0.3,
+              border: "1px solid var(--line)",
+            }}
+          >
+            {d.score.toFixed(2)}
+          </span>
+        )}
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          style={{
+            width: 1,
+            height: 1,
+            opacity: 0,
+            pointerEvents: "none",
+            background: "transparent",
+            border: "none",
+          }}
+        />
+      </div>
     </div>
   );
 }

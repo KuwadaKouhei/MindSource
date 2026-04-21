@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchRelated, WordApiError } from "@/lib/word-api/server";
+import { fetchRelated, RelationWordApiError } from "@/lib/relation-word-api/server";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     const data = await fetchRelated({ word, top_k, min_score, pos, exclude, use_stopwords });
     return NextResponse.json(data);
   } catch (e) {
-    if (e instanceof WordApiError) {
+    if (e instanceof RelationWordApiError) {
       return NextResponse.json(
         { error: e.message, detail: e.detail },
         { status: e.status },

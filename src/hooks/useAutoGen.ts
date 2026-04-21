@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { Node } from "@xyflow/react";
-import { searchCascade, searchRelated } from "@/lib/word-api/client";
+import { searchCascade, searchRelated } from "@/lib/relation-word-api/client";
 import { cascadeToFlow, relatedToChildren } from "@/lib/flow/convert";
 import { runLayout, nodeSize, type PlacedBox } from "@/components/layout/LayoutRunner";
 import type { Settings } from "@/lib/settings/schema";

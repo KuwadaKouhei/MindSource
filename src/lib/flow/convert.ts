@@ -1,5 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { CascadeResponse, RelatedResponse } from "@/lib/word-api/types";
+import type { CascadeResponse, RelatedResponse } from "@/lib/relation-word-api/types";
 import type { WordNodeData } from "@/lib/yjs/binding";
 import {
   findFreePosition,

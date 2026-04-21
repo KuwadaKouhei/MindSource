@@ -24,9 +24,9 @@ export function yEdgeToFlow(v: YEdgeValue): Edge {
     id: v.id,
     source: v.source,
     target: v.target,
-    type: "smoothstep",
+    type: "step",
     data: { score: v.score },
-    style: v.score != null ? { opacity: 0.35 + 0.65 * v.score } : undefined,
+    style: v.score != null ? { opacity: 0.35 + 0.45 * v.score } : undefined,
   };
 }
 

@@ -37,28 +37,16 @@ export function PresenceBar({ provider }: Props) {
 
   if (!provider) return null;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+    <div style={{ display: "flex", alignItems: "center", paddingLeft: 4 }}>
       {users.map((u) => (
-        <div
+        <span
           key={u.id}
+          className="pav"
           title={u.name}
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: 9999,
-            background: u.color,
-            border: "2px solid var(--surface)",
-            marginLeft: -6,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#0b0d12",
-            fontSize: 11,
-            fontWeight: 700,
-          }}
+          style={{ background: u.color }}
         >
-          {u.name.slice(0, 1)}
-        </div>
+          {(u.name || "?").slice(0, 1).toUpperCase()}
+        </span>
       ))}
     </div>
   );
