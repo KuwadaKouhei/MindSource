@@ -1,260 +1,386 @@
+<div align="center">
+
 # MindSource
 
-連想語をつなげていくマインドマップ作成 Web アプリ。
+**思考を、みんなで広げる。** — リアルタイム共同編集 × AI 関連語展開のマインドマップ
 
-- 手動モードと、relation-word-api による連想語の自動生成モード
-- 匿名でも作成・編集可能、ログインすれば Supabase に保存
-- 複数人リアルタイム共同編集（Yjs + y-websocket、ライブカーソル付き）
-- ツリー表示、undo/redo、PNG / SVG エクスポート
+![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Yjs](https://img.shields.io/badge/Yjs-CRDT-6b5bff)
+![Supabase](https://img.shields.io/badge/Supabase-Auth%20%7C%20Postgres%20%7C%20RLS-3ECF8E?logo=supabase&logoColor=white)
+![Tailwind](https://img.shields.io/badge/Tailwind-4-38BDF8?logo=tailwindcss&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-リポジトリ: <https://github.com/KuwadaKouhei/MindSource>
+<!-- TODO: デモGIF差し替え -->
+<img src="./docs/Animation.gif" alt="共同編集デモ" width="720" />
+
+**[🔗 ライブデモを開く](https://mindsource.vercel.app/)** ・ [使い方を見る](#主要機能) ・ [セットアップ](#セットアップ)
+
+</div>
+
+---
+
+## なぜ作ったか
+
+マインドマップを作るアプリは存在しますが、以下の要件を満たすアプリは有りませんでした。
+
+1. **複数人が同時に書き込める**(会議中にメンバー全員でノードを足せる)
+2. **AI が関連語を提案してくれる**(発想の "次の一手" が出てこない時間を潰したい)
+3. **ログインせずに試せる**(初見のハードルを極限まで下げたい)
+
+MindSource はこの 3 点を 1 つのアプリに収める試みです。技術的には「**CRDT による競合解決**」「**WebSocket 常駐と Next.js サーバーレスの分離**」「**RLS による権限の宣言的管理**」といった、実運用で悩む論点を正面から扱うサンプルにもなっています。
+
+---
+
+## 設計思想
+要件を満たしつつ、技術的な実現方法についてはClaudeCodeと壁打ちしながら設計。
+
+--- 
+
+## 技術的ハイライト ★最重要
+
+### 1. CRDT によるサーバーレス競合解決
+
+ノード追加・位置変更・文字編集は **すべて Yjs(CRDT)** で同期します。サーバー側に競合解決ロジックを一切書かないため、collab-server は「更新を受け取って他クライアントに配るだけ」の薄い層に保てます。
+
+```ts
+// src/lib/yjs/doc.ts — 構造を3つのY.Mapに分離
+const yNodes = ydoc.getMap<YNodeValue>("nodes");
+const yEdges = ydoc.getMap<YEdgeValue>("edges");
+const yMeta  = ydoc.getMap<YMetaValue>("meta");
+```
+
+`Y.UndoManager` で **ローカル編集だけを Undo 対象にする** ことで、他人の編集を自分の Undo で巻き戻す事故を防いでいます([src/hooks/useMindmap.ts](src/hooks/useMindmap.ts#L41-L47))。
+
+### 2. 分散構成:サーバーレス × 常駐 WS のハイブリッド
+
+Next.js(Vercel)はサーバーレスなため、WebSocket の長寿命接続には向きません。そこで **collab-server だけを Render の常駐プロセス** に切り出しました([collab-server/src/index.ts](collab-server/src/index.ts))。
+
+- フロント / 認証 / CRUD API:**Vercel サーバーレス**
+- 共同編集 WebSocket:**Render 常駐**
+- 関連語 AI API:**別サービス**(キー漏洩防止のため Next.js API Route 経由で呼び出し)
+
+この分離により、常駐が必要な部分だけにコストを払う構成になっています。
+
+### 3. ELK + 放射レイアウトの二段構え
+
+マインドマップの自動レイアウトは **モード切替式** にしています([src/components/layout/LayoutRunner.ts](src/components/layout/LayoutRunner.ts))。
+
+| モード | 実装 | 用途 |
+|---|---|---|
+| `radial` | 自前の放射アルゴリズム(世代ごとの ringGap) | ブレスト・発想重視 |
+| `layered` / `mrtree` | [elkjs](https://github.com/kieler/elkjs) | 整理・清書フェーズ |
+
+さらに **DOM 計測後に重なり解消パス**(`resolveOverlaps`)を噛ませることで、ノードの可変幅テキストでも崩れないようにしています。
+
+### 4. 二層永続化:IndexedDB + Supabase + y-leveldb
+
+同じドキュメントを、用途ごとに 3 つの永続化レイヤに落とします。
+
+- **ログイン前**:IndexedDB(`idb-keyval`)にローカルドラフトとして保存
+- **ログイン後の権威データ**:Supabase Postgres にスナップショット保存
+- **リアルタイム差分**:collab-server の y-leveldb に逐次書き込み
+
+ログイン前に作ったマップをログイン後にインポートできるフローも、ここを軸に組まれています([src/app/api/maps/import/route.ts](src/app/api/maps/import/route.ts))。
+
+---
+
+## アーキテクチャ図
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        UI[React Flow UI]
+        YDoc[Y.Doc<br/>in-memory]
+        IDB[(IndexedDB<br/>ローカルドラフト)]
+    end
+
+    subgraph Vercel["Vercel (サーバーレス)"]
+        Next[Next.js 16<br/>App Router]
+        API[/api/word/related<br/>/api/maps/*/]
+    end
+
+    subgraph Render["Render (常駐)"]
+        WS[collab-server<br/>y-websocket]
+        LDB[(y-leveldb)]
+    end
+
+    subgraph External
+        Supabase[(Supabase<br/>Auth + Postgres + RLS)]
+        RelAPI[relation-word-api<br/>AI関連語生成]
+    end
+
+    UI <--> YDoc
+    YDoc <--> IDB
+    YDoc <-.WebSocket.-> WS
+    WS <--> LDB
+
+    UI -->|SSR / CRUD| Next
+    Next --> API
+    API -->|認証/RLS| Supabase
+    API -->|APIキー保護| RelAPI
+
+    style WS fill:#6b5bff,color:#fff
+    style YDoc fill:#6b5bff,color:#fff
+    style Supabase fill:#3ECF8E,color:#000
+```
+
+---
+
+## 主要機能
+
+<table>
+<tr>
+<td width="50%">
+
+### 🧠 AI 関連語展開
+ノードを選んで "展開" を押すと、AI が関連語を枝として自動生成します。
+<br/><img src="./docs/assets/feature-ai.png" alt="AI展開" />
+
+</td>
+<td width="50%">
+
+### 👥 リアルタイム共同編集
+他ユーザーのカーソル・選択状態が見え、編集は即時反映されます。
+<br/><img src="./docs/assets/feature-collab.png" alt="共同編集" />
+
+</td>
+</tr>
+
+</table>
+
+<!-- TODO: スクショ差し替え -->
 
 ---
 
 ## 技術スタック
 
-- **フロントエンド**: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS v4
-- **認証・DB**: Supabase (Email マジックリンク / Google OAuth, Postgres + RLS)
-- **マップ描画**: React Flow (`@xyflow/react`) + カスタム `WordNode`
-- **レイアウト**: ELK.js（階層/放射の2モード、世代別の間隔スライダー）
-- **共同編集**: Yjs CRDT + `y-websocket`（独立 `collab-server` プロセス、永続化は `y-leveldb`）
-- **リモートカーソル**: Yjs awareness
-- **画像エクスポート**: `html-to-image` (PNG / SVG)
-- **連想語 API**: 隣接プロジェクト `../relation-word-api` (chiVe) を Next の API ルート経由でプロキシ（`X-API-Key` は秘匿）
+### フレームワーク層
+
+| 技術 | 選定理由 |
+|---|---|
+| **Next.js 16 (App Router)** | サーバーコンポーネントで Supabase 認証済みデータを初期描画に直接埋め込み、マップ一覧などの SEO / 初期表示を高速化。API Routes で BFF 層を同居できる。 |
+| **React 19** | `use()` や Server Actions など、認証セッション渡しの省記述化。Next.js 16 との組み合わせが公式推奨。 |
+| **TypeScript 5** | Yjs / Supabase / React Flow いずれも型定義が厚く、ドキュメント構造(`YNodeValue` など)を全層で共有するには必須。 |
+| **Tailwind CSS 4** | デザインシステム(`src/components/ui/primitives/`)を素早く組み、Oxide エンジンで高速ビルド。 |
+
+### 共同編集・状態同期
+
+| 技術 | 選定理由 |
+|---|---|
+| **Yjs + y-protocols** | CRDT なので **競合解決のサーバーロジックが不要**。`yNodes` / `yEdges` / `yMeta` の 3 つの `Y.Map` で構造を分離。 |
+| **y-websocket + 自前 collab-server** | クライアントから直接 WS で接続。Next.js のサーバーレス関数は WS 永続接続に不向きなため別サービス化。 |
+| **y-leveldb** | collab-server 側の永続化レイヤ。Redis 等の追加インフラ不要でファイルシステム永続化でき、Free tier で回せる。 |
+| **idb-keyval** | ログイン前のローカルドラフト保存用。Yjs スナップショットのバイト列をそのまま格納できる。 |
+
+### グラフ描画
+
+| 技術 | 選定理由 |
+|---|---|
+| **@xyflow/react (React Flow)** | ノード / エッジ UI、ドラッグ、ズーム、ミニマップが揃っており、Yjs との接続はカスタムフックで薄く書ける。 |
+| **elkjs** | 階層レイアウト用。layered / mrtree アルゴリズムが揃っており、WebWorker 化も可能。 |
+| **html-to-image** | PNG エクスポート用。SVG シリアライズより崩れが少ない。 |
+
+### 認証・DB・その他
+
+| 技術 | 選定理由 |
+|---|---|
+| **Supabase (Auth + Postgres + RLS)** | OAuth / メール認証、Postgres、RLS が一体。所有者 / 共同編集者判定を DB 側で完結できる。 |
+| **@supabase/ssr** | Next.js App Router でサーバー / クライアント両方のセッションを cookie で安全に受け渡す公式ルート。 |
+| **zod** | 設定スキーマと外部 API レスポンスを同じ流儀で検証。型推論と両立。 |
+| **nanoid** | マップ ID / ノード ID。UUID より短く、URL・Yjs キーに乗せやすい。 |
 
 ---
 
-## 機能
+## 仕組み
 
-### 作成フロー
+> **CRDT(Yjs)でサーバーロジックを最小化し、Supabase RLS で権限を宣言的に扱い、Next.js 16 で UI / BFF を 1 箇所に、WS 常駐が必要な collab-server だけを別サービスとして切り出す。**
 
-- Home の「+ 新しいマインドマップ」「ログインなしで試す」からモーダル起動 → タイトルと **起点ワード** を入力して作成
-- 起点ワードを入れるとエディタ起動直後に relation-word-api の `/v1/cascade` を呼んで樹形図を一括生成
+### データフローの要点
 
-### エディタ
+1. **編集はまずローカル Y.Doc に当たる**
+   クライアントの `Y.Doc` が真の編集対象。UI は `Y.Doc` のスナップショットを React state に写しているだけ。
 
-- ドラッグで配置、ツールバー左の **☰ ツリー** でサイドに階層ツリー表示（検索・折り畳み対応）
-- **ノードをダブルクリックでラベル編集**（Enter 確定 / Esc キャンセル）
-- 右パネルから「子を追加」「連想を追加（1世代 expand）」「削除」（削除前に確認ダイアログ）
-- **Undo / Redo**: ツールバー ↶ / ↷、ショートカット `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`（Yjs `UndoManager`）
-- **再レイアウト**ボタンで設定に基づき全体配置をやり直し
-- PNG / SVG エクスポート（`html-to-image`）
-- **共有**ボタンで URL をクリップボードへ（同じ URL を開くとリアルタイム共同編集）
+2. **差分は即座に WS でブロードキャスト**
+   `y-websocket` は差分更新を他クライアントに配信し、collab-server 側の `y-leveldb` にも同時に書く。
 
-### 共同編集
+3. **スナップショットはサーバーレス側で保存**
+   一定間隔 or 明示保存で、Next.js API(`/api/maps/[id]/snapshot`)が Supabase に権威スナップショットを書き込む。
 
-- `y-websocket` + `y-leveldb` で CRDT 同期、切断中の編集もあとでマージ
-- **ライブカーソル**: 他ユーザーのマウス位置を色付き矢印 + 表示名で可視化
-- PresenceBar: 参加ユーザーのアバターを重ねて表示
+4. **権限は RLS で守る**
+   Next.js API はユーザー cookie を Supabase に渡すだけ。「そのマップを見てよいか / 書き換えてよいか」の判定は Postgres の RLS ポリシーが担当。
 
-### 自動生成
+5. **AI 関連語は必ずサーバー経由**
+   `/api/word/related` がブラウザから relation-word-api へ直接叩かせないためのプロキシ。キーは `RELATION_WORD_API_KEY` としてサーバー側のみに置く。
 
-- **cascade**: 起点1語から `/v1/cascade` で DAG 一括取得 → ELK レイアウト → Y.Doc に適用
-- **expand**: 選択ノード or 右パネルから `/v1/related` で1世代追加、既存語を自動除外
-- 両モードとも `depth`, `top_k`, `min_score`, `pos`（品詞）, `exclude`, `use_stopwords`, `max_nodes` を設定画面で調整
+### Origin チェックで WS を保護
 
-### 設定（`/settings`）
-
-- 自動モード: cascade / expand
-- レイアウト: **樹形図 (hierarchical)** / 放射状 (radial)
-- **世代間の距離**: 第2世代 / 第3世代以降 をそれぞれスライダー調整
-- **カラースキーム**: default / cool / warm / vivid（ノード/ツリー/ミニマップに反映）
-- 類似度閾値・品詞フィルタ・除外語リスト
-- ログイン中は Supabase に保存、匿名時は localStorage
-
-### アカウント
-
-- Email マジックリンク / **Google OAuth**（Supabase 側で有効化したとき）
-- `/me` でプロフィール編集（表示名 / アバター URL）と User ID 確認
-- 匿名で作った下書きをログイン後にインポート（`/me` の DraftImporter）
-- ログアウト時に匿名下書きを残すか削除するかを選べる
-- **コラボレーター管理**: 保存版マップのツールバー「メンバー」→ UUID 指定で editor/viewer を追加・削除
-
-### その他の UX
-
-- **トースト通知**: relation-word-api の接続失敗、保存失敗、共有 URL コピー成功などを右下に表示
-- **beforeunload フラッシュ**: タブを閉じる直前にスナップショットを `sendBeacon` で送信（2秒デバウンス中の編集も拾う）
-- 削除キー (`Delete` / `Backspace`) は無効化、右パネル経由で確認ダイアログを挟む
+collab-server は `CLIENT_ORIGIN` 環境変数で許可 Origin を絞り、それ以外からの upgrade は 403 で拒否します([collab-server/src/index.ts](collab-server/src/index.ts#L46-L53))。
 
 ---
 
-## クイックスタート
+## セットアップ
 
-### 1. 依存インストール
+<details>
+<summary><b>必要なもの</b></summary>
 
-```bash
-cd d:/training2/mindsource
-npm install
-cd collab-server && npm install && cd ..
-```
+- Node.js 20+
+- Supabase プロジェクト(無料枠で OK)
+- relation-word-api(別リポジトリ。ローカルは `http://localhost:8000` で起動)
 
-### 2. Supabase プロジェクト
+</details>
 
-1. [supabase.com](https://supabase.com/) で新規プロジェクト作成
-2. SQL Editor で下記を順番に実行:
-   - `supabase/migrations/0001_init.sql` （テーブル・RLS）
-   - `supabase/migrations/0002_ring_gaps.sql` （`user_settings.ring_gaps` カラム追加）
-   - `supabase/migrations/0003_default_layout_hierarchical.sql` （既定レイアウトを樹形図に）
-   - `supabase/migrations/0004_ring_gaps_wider.sql` （ring_gaps の既定を `[120, 80]` に）
-3. Authentication → Providers:
-   - **Email** を有効化
-   - **Google** を使う場合: GCP OAuth クライアント作成 → Client ID / Secret を Supabase に登録
-4. Authentication → URL Configuration:
-   - Site URL に開発用の `http://localhost:3000` を設定
-   - Redirect URLs に `http://localhost:3000/callback` を追加
+<details>
+<summary><b>1. 環境変数</b></summary>
 
-### 3. `.env.local`
+`.env.example` をコピーして `.env.local` を作成します。
 
 ```bash
 cp .env.example .env.local
 ```
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://xxxxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
-# 連想語 API（サーバー側専用、ブラウザには渡さない）
-RELATION_WORD_API_BASE_URL=http://localhost:8000       # ローカル: ../relation-word-api を docker compose up
-# 本番利用時: RELATION_WORD_API_BASE_URL=https://13-193-92-78.nip.io  等
+# relation-word-api (server-side only)
+RELATION_WORD_API_BASE_URL=http://localhost:8000
 RELATION_WORD_API_KEY=dev-key-1
 
-# ブラウザから直接繋ぐ WebSocket。本番では wss:// を使う
+# Collab websocket (public)
 NEXT_PUBLIC_COLLAB_WS_URL=ws://localhost:1234
 ```
 
-### 4. 起動
+</details>
+
+<details>
+<summary><b>2. Supabase スキーマ</b></summary>
+
+`supabase/migrations/` 配下の SQL を Supabase プロジェクトに適用してください。主要テーブル:
+
+- `mindmaps` — マップのメタ情報とスナップショット
+- `map_collaborators` — 共同編集者
+- `profiles` — ユーザープロフィール
+
+各テーブルに RLS ポリシーが定義されています。
+
+</details>
+
+<details>
+<summary><b>3. インストールと起動</b></summary>
 
 ```bash
-# Next.js + collab-server を同時起動
+# 依存インストール
+npm install
+npm install --prefix collab-server
+
+# Next.js と collab-server を同時起動
 npm run dev:collab
 ```
 
-- Next: <http://localhost:3000>
-- collab-server: `ws://localhost:1234`
-- relation-word-api: <http://localhost:8000>（`../relation-word-api` で `docker compose up` 済みが前提）
+- Next.js: http://localhost:3000
+- collab-server: ws://localhost:1234
 
-Next だけ起動するときは `npm run dev`。
+Next.js だけ起動したい場合は `npm run dev`。
+
+</details>
 
 ---
 
 ## ディレクトリ構成
 
+<details>
+<summary><b>クリックで展開</b></summary>
+
 ```
-src/
-├── app/
-│   ├── page.tsx                    # Home
-│   ├── (auth)/login, callback
-│   ├── me                          # マイページ（プロフィール・マップ一覧・ドラフトインポート）
-│   ├── settings                    # 自動生成・レイアウト・色の設定
-│   ├── maps/[id]                   # 保存済みエディタ
-│   ├── maps/local/[localId]        # 匿名ドラフトエディタ
-│   └── api/
-│       ├── word/{related,cascade}  # relation-word-api プロキシ（X-API-Key 秘匿）
-│       ├── maps/...                # マップ CRUD + スナップショット + import
-│       ├── maps/[id]/collaborators # コラボレーター CRUD（オーナーのみ）
-│       ├── settings                # user_settings CRUD
-│       └── profile                 # profiles CRUD
-├── components/
-│   ├── editor/                     # Canvas, Toolbar, NodeInspector, PresenceBar,
-│   │                               #   RemoteCursors, TreePanel, CollaboratorsModal, EditorClient
-│   ├── flow/                       # WordNode + ColorSchemeContext
-│   ├── layout/LayoutRunner.ts      # ELK ラッパ + overlap 解決 + findFreePosition
-│   ├── home/NewMapModal.tsx
-│   ├── settings/SettingsForm.tsx
-│   ├── me/                         # ProfileEditor, DraftImporter, SignOutButton, DeleteMapButton
-│   └── ui/                         # Header, Toaster, ConfirmDialog, LoginForm
-├── lib/
-│   ├── supabase/{client,server}.ts
-│   ├── relation-word-api/{server,client,types}.ts
-│   ├── yjs/{doc,binding,provider,nodeRenameBridge}.ts
-│   ├── storage/localDraft.ts       # idb-keyval
-│   ├── settings/{schema,defaults}.ts
-│   └── flow/{convert,colors}.ts
-├── hooks/
-│   ├── useMindmap.ts               # Y.Doc ↔ React Flow + UndoManager
-│   ├── useAutoGen.ts               # cascade / expand
-│   └── useSettings.ts
-└── proxy.ts                        # Supabase セッション自動更新 (Next 16 proxy)
-collab-server/
-├── src/index.ts                    # y-websocket + y-leveldb
-├── Dockerfile                      # Fly.io / Render などで利用
-└── fly.toml.example
-supabase/migrations/                # 0001 〜 0004 の SQL
+mindsource/
+├── src/
+│   ├── app/                      # Next.js App Router
+│   │   ├── (auth)/               # 認証系ページ
+│   │   ├── api/                  # BFF: maps / word / settings / profile
+│   │   ├── maps/[id]/            # 編集画面 (ログイン済み)
+│   │   ├── maps/local/[localId]/ # 編集画面 (ローカルドラフト)
+│   │   └── me/, settings/        # ユーザー系ページ
+│   ├── components/
+│   │   ├── editor/               # Canvas / Toolbar / PresenceBar など
+│   │   ├── flow/                 # WordNode / ColorScheme
+│   │   ├── home/                 # ランディングページ
+│   │   ├── layout/               # LayoutRunner (ELK + radial)
+│   │   ├── me/, settings/        # ユーザー設定 UI
+│   │   └── ui/primitives/        # Button / Tag / Logo などの基礎 UI
+│   ├── hooks/                    # useMindmap / useSettings / useAutoGen
+│   └── lib/
+│       ├── yjs/                  # Y.Doc 生成・binding・provider
+│       ├── supabase/             # server / client 用 Supabase クライアント
+│       ├── relation-word-api/    # AI API クライアント (server/client)
+│       ├── storage/localDraft.ts # IndexedDB ドラフト
+│       ├── flow/                 # React Flow 変換 + 配色
+│       └── settings/             # zod スキーマとデフォルト値
+├── collab-server/                # y-websocket + y-leveldb 常駐サーバー
+│   └── src/index.ts
+├── docs/                         # ドキュメント
+│   ├── tech-stack-rationale.md
+│   └── verification-scenarios.md # 動作確認シナリオ
+└── .env.example
 ```
 
----
-
-## 仕組み
-
-### 状態管理の仕組み
-
-- **Y.Doc がライブ状態の権威**。`Y.Map<nodeId, Node>` / `Y.Map<edgeId, Edge>` / `Y.Map<meta>` を持つ
-- React Flow の `onNodesChange/onEdgesChange` → `ydoc.transact()` で Y.Map を更新
-- Y.Map の observer で React state を書き戻し → コラボ経由の変更も UI に反映
-- **UndoManager** (`yjs` の `Y.UndoManager`) で編集をスタック管理、`captureTimeout: 300ms`
-
-### 永続化の仕組み
-
-- **ログイン時**: Y.Doc は y-websocket 経由で他クライアントと同期。2秒デバウンスで JSON スナップショットを `/api/maps/[id]/snapshot` に PUT
-- **匿名時**: Y.Doc はメモリのみ、2秒デバウンスで IndexedDB（`idb-keyval`）に保存
-- **タブ閉じ**: `beforeunload` / `pagehide` で最新スナップショットを `sendBeacon` / IDB 書き込みでフラッシュ
-- collab-server 側は独自に `y-leveldb` で状態を保存し、再起動後も最新を返す
-
-### 自動生成の仕組み
-
-- **cascade**: `/v1/cascade` → DAG を React Flow のノード/エッジに変換 → ELK でレイアウト → 測定後に `useNodesInitialized` で再レイアウト
-- **expand**: `/v1/related` → 既存語を `exclude` に入れて取得 → 親の真下に配置、`findFreePosition` で衝突回避
-
-### レイアウトの仕組み
-
-- **ELK layered**（樹形図）: 世代ごとに行 Y を再計算、各世代の行高はその世代の一番大きいノードに合わせる
-- **放射**: 世代ごとの弦長と最小リング間隔から半径を計算、**兄弟間は MIN_GAP 確保**
-- 最終段で `resolveOverlaps`（ペア反復で軸方向に押し分け）してノード矩形の重なりを保証解消
-- `ring_gaps` 設定で世代別のリング間隔を UI から直接調整可能
-
-### コラボの仕組み
-
-- room id = `mindmaps.id`（保存済）または `local:<nanoid>`（匿名）
-- awareness フィールド:
-  - `user`: `{ id, name, color }` → PresenceBar でアバター表示
-  - `cursor`: マウス位置（ワールド座標）→ RemoteCursors が画面変換して描画
+</details>
 
 ---
 
 ## 動作確認シナリオ
 
-1. `npm run dev:collab` で両プロセス起動（`../relation-word-api` が別途稼働している前提）
-2. `/` → 「ログインなしで試す」モーダルでタイトルと起点ワード「猫」を入れて作成 → 樹形図が自動生成
-3. ノードをダブルクリックしてラベル編集
-4. `Ctrl+Z` で元に戻す
-5. 右下のミニマップ、左の **☰ ツリー**、ツールバーの **再レイアウト** / **PNG** / **SVG** を確認
-6. 設定画面でカラースキームや世代間距離を変更 → 再レイアウトで反映
-7. メールでログイン → `/me` で表示名を設定 / ドラフトをインポート
-8. 保存版マップでツールバー「メンバー」→ UUID 指定でコラボレーター追加
-9. 2 つのブラウザ（または incognito）で同じ共有 URL を開く → カーソルが見え、編集が即時反映
-10. relation-word-api を停止してから自動生成 → 赤いトーストで「接続できません」が表示される
+詳細は [docs/verification-scenarios.md](docs/verification-scenarios.md) を参照してください。カバーしているシナリオ:
 
----
-
-## 本番デプロイ
-
-詳細は [DEPLOY.md](./DEPLOY.md) 参照。
-
-- **Next.js → Vercel**: `vercel deploy --prod`、env に Supabase / relation-word-api / collab WS URL
-- **collab-server → Fly.io / Render / 自前 VPS**: `collab-server/Dockerfile` + `fly.toml.example` を雛形に、`y-leveldb` 用の永続ボリュームをマウント
-- Supabase の Redirect URLs に本番ドメインを追加
+- 単独ユーザーでのノード追加・編集・Undo/Redo
+- 2 ブラウザでの同時編集・カーソル表示
+- ログイン前ドラフト作成 → ログイン後インポート
+- AI 関連語展開と中断
+- 権限外ユーザーの閲覧 / 編集拒否(RLS)
+- collab-server 再接続(WS 切断からの復帰)
 
 ---
 
 ## 既知の制約
 
-- relation-word-api 本番エンドポイント（nip.io の EC2）は断続稼働。開発時はローカル `http://localhost:8000` が安定
-- y-websocket 単独構成は 1 プロセス前提。水平スケールには Redis pub/sub アダプタ等が必要
-- スナップショット同期はクライアント任せ（2秒デバウンス + unload 時 beacon）。極端に速いタブ閉じで最新が届かない可能性は残る
-- React Flow は v12 系（`@xyflow/react`）。旧 `reactflow` パッケージではない
+正直に書きます。以下は認識しているが **意図的に未着手** の論点です。
+
+- **同時編集ユーザー上限は 10 名程度まで** ─ それ以上は awareness の帯域と React Flow の再レンダで劣化します。shard 化は未検討。
+- **画像ノード未対応** ─ 現状はテキストノードのみ。Blob ストレージの導入が前提条件。
+- **オフライン編集の自動マージは部分的** ─ Yjs 的にはマージされますが、UX として「オフラインで書いたものが戻ってくる感」の作り込みは未完。
+- **モバイル最適化は最低限** ─ タッチでのノード作成・ピンチズームは動くが、UI 密度はデスクトップ優先。
+- **AI レスポンスのストリーミング未対応** ─ 関連語は一括返却。将来的には SSE 化予定。
+- **collab-server の水平スケール未対応** ─ y-leveldb がファイルシステム依存のため、複数インスタンスで同一ルームを扱えません。Redis 版への差し替えが必要。
+
+---
+
+## 他ポートフォリオとの関係
+
+MindSource は、以下のポートフォリオ群と **技術テーマを分担** するように設計しています。
+
+| プロジェクト | 主眼 | MindSource との違い |
+|---|---|---|
+| **MindSource**(本作) | リアルタイム共同編集 / CRDT / 分散構成 | サーバーレスと常駐を両立させる構成が主役 |
+| VocalTune | 音声処理 / WebAudio / リアルタイム解析 | シングルユーザー・ローカル処理中心 |
+| (他作品) | ... | ... |
+
+「**サーバーレスで何でも済ませるのではなく、常駐が必要なものは切り出す**」という判断を、実動するコードで示すのが本作の狙いです。
+
+---
+
+## 作者情報
+
+**Kouhei Kuwada**
+
+- GitHub: [@KuwadaKouhei](https://github.com/KuwadaKouhei)
+- Email: k.kuwada.act@gmail.com
+
+技術的な質問・採用に関する連絡は歓迎します。Issue でも OK です。
 
 ---
 
 ## ライセンス
 
-MIT — [LICENSE](./LICENSE)
+[MIT License](./LICENSE) © 2026 Kouhei Kuwada
